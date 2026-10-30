@@ -6,9 +6,11 @@ __pycache__/
 
 # Local source data and SQLite database
 datos_fuente/
-datos_app/*.db
-datos_app/*.db-shm
-datos_app/*.db-wal
+datos_app/
+respaldos_diseno/
+.vscode/
+INICIAR.bat
+*.lnk
 
 # Frontend dependencies and local secrets
 pwa/node_modules/
