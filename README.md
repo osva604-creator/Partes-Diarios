@@ -6,7 +6,7 @@ El trabajo de reconstrucción para PC y móvil está en `pwa/`. El relevamiento 
 
 Para iniciar el frontend: `cd pwa`, copiar `.env.example` a `.env.local`, colocar la URL y la clave publishable del proyecto **Partes Diarios**, luego ejecutar `npm install` y `npm run dev`. No colocar claves secret/service-role en variables `VITE_` ni en el cliente.
 
-La PWA ya permite iniciar sesión, consultar los datos maestros y guardar un parte simple de una tarea en Supabase. Requiere catálogos y frentes cargados previamente. Todavía no incluye importación de los archivos locales, sincronización offline, revisión de partes ni generación de PDF. La guía del estado y próximos pasos está en `docs/arquitectura-pwa.md`.
+La PWA ya permite iniciar sesión, consultar los datos maestros y guardar un parte simple de una tarea en Supabase. Los catálogos maestros ya están cargados; para empezar a registrar partes falta crear y configurar al menos un frente. Todavía no incluye sincronización offline, revisión de partes ni generación de PDF. La guía del estado y próximos pasos está en `docs/arquitectura-pwa.md`.
 
 Aplicación para interpretar y registrar partes diarios agrícolas.
 

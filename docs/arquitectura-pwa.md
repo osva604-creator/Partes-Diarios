@@ -47,8 +47,9 @@ Operación: `fronts`, `front_members`, `front_task_members`, `work_cycles`, `dai
 ## Estado de implementación
 
 - Implementado: login por correo/contraseña, sesión persistente, lectura de catálogos activos, formulario para una tarea, personal de frente, distribución igualitaria y guardado en `create_daily_report`.
-- Estado de datos en Supabase al revisar: 0 fincas, lotes, operaciones, personas, máquinas y frentes activos. Los maestros locales contienen 27 fincas, 621 filas de lotes (619 IDs únicos), 299 operaciones, 561 personas, 517 máquinas y 149 insumos. Hay dos IDs de lote repetidos en el inventario (`0010401` y `0201601`); requieren una regla de consolidación antes de importar.
-- Pendiente: importador de los maestros locales, administración de frentes, cargas con varias tareas, ciclo de ausencias/reemplazos/maquinaria por persona, insumos, borradores y cola offline, resumen de avance, revisión documental y PDF.
-- La interfaz informa de forma explícita cuando aún no hay catálogos activos. El modo sin conexión está limitado al shell cacheado; todavía no se guardan partes offline.
+- Maestros cargados en Supabase: 27 fincas, 619 lotes, 299 operaciones, 561 personas, 517 máquinas y 149 insumos; todos están activos. Los dos IDs de lote repetidos (`0010401` y `0201601`) corresponden a variedades distintas del mismo lote: se consolidaron sumando superficie bruta, neta y surcos, y conservando ambas variedades. Nueve equipos con IDs internos repetidos recibieron un `equipment_code` compuesto; sus códigos visibles se conservaron.
+- No se cargaron frentes porque no hay un archivo maestro de frentes. Falta configurar al menos uno antes de guardar partes desde la PWA.
+- Pendiente: administración de frentes, cargas con varias tareas, ciclo de ausencias/reemplazos/maquinaria por persona, borradores y cola offline, resumen de avance, revisión documental y PDF.
+- El modo sin conexión está limitado al shell cacheado; todavía no se guardan partes offline.
 - Para ejecutar: `cd pwa`, copiar `.env.example` a `.env.local`, configurar URL y clave publishable, y usar `npm run dev`. No incluir claves secret/service-role en el cliente.
 

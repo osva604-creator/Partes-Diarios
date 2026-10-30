@@ -5,9 +5,9 @@ Estado: primer relevamiento del código actual, 29/10/2026. Este documento sirve
 ## Estado actual de la reconstrucción (30/10/2026)
 
 - La PWA implementa autenticación Supabase, lectura de catálogos activos y carga inicial de una tarea mediante la RPC transaccional `create_daily_report`.
-- La base conectada tiene el esquema y la RPC, pero aún no tiene catálogos ni frentes activos. La carga operativa requiere importar los maestros y crear/configurar frentes.
+- La base conectada tiene el esquema, la RPC y los catálogos maestros activos: 27 fincas, 619 lotes, 299 operaciones, 561 personas, 517 máquinas y 149 insumos. Aún no hay frentes; la carga operativa requiere crear/configurar al menos uno.
 - La carga inicial permite elegir una finca, lote, operación, frente y personas; reparte el total en partes iguales. Aún no cubre paridad funcional con la app Streamlit.
-- El inventario local contiene filas repetidas para los IDs de lote `0010401` y `0201601`; se debe definir si son variantes que se agregan o un duplicado a descartar antes de importar.
+- Las filas repetidas de `0010401` y `0201601` se consolidaron como variedades del mismo lote: se sumaron superficies y surcos, y se conservaron ambas variedades en el registro.
 
 ## Módulos y flujos observados
 
