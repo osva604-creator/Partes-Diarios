@@ -1,0 +1,18 @@
+# Local environments and embedded runtimes
+.venv/
+runtime/
+__pycache__/
+*.py[cod]
+
+# Local source data and SQLite database
+datos_fuente/
+datos_app/*.db
+datos_app/*.db-shm
+datos_app/*.db-wal
+
+# Frontend dependencies and local secrets
+pwa/node_modules/
+pwa/dist/
+pwa/.env.local
+pwa/.env.*.local
+pwa/*.tsbuildinfo
