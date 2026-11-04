@@ -4,7 +4,7 @@
 
 El trabajo de reconstrucción para PC y móvil está en `pwa/`. El relevamiento funcional está en `docs/relevamiento-funcional.md` y las decisiones técnicas en `docs/arquitectura-pwa.md`.
 
-Para iniciar el frontend localmente: `cd pwa`, copiar `.env.example` a `.env.local`, colocar la URL y la clave publishable del proyecto **Partes Diarios**, luego ejecutar `npm ci` y `npm run dev`. La PWA se publica en GitHub Pages desde la rama `main`: https://osva604-creator.github.io/Partes-Diarios/. No colocar claves secret/service-role en variables `VITE_` ni en el cliente.
+Para iniciar el frontend localmente: `cd pwa`, copiar `.env.example` a `.env.local`, colocar la URL y la clave publishable del proyecto **Partes Diarios**, luego ejecutar `npm ci` y `npm run dev`. El repositorio permanece en GitHub; el hosting previsto es Cloudflare Pages, conectado a la rama `main`. La configuración de publicación está en `docs/despliegue-cloudflare.md`. No colocar claves secret/service-role en variables `VITE_` ni en el cliente.
 
 La PWA permite iniciar sesión, consultar los datos maestros, configurar frentes por tarea y guardar un parte simple en Supabase. Para empezar, ingresá con una cuenta activa y configurá los frentes reales en **Frentes**. Todavía no incluye sincronización offline, consulta del avance, revisión de partes ni generación de PDF. La matriz viva y los próximos pasos están en `docs/relevamiento-y-paridad-funcional.md`.
 
