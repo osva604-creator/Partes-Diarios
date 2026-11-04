@@ -3,7 +3,7 @@
   "name": "partes-diarios",
   "compatibility_date": "2026-11-04",
   "build": {
-    "command": "npm run build",
+    "command": "npm ci && npm run build",
     "cwd": "."
   },
   "assets": {

@@ -1,10 +1,10 @@
 # Publicar la PWA en Cloudflare Workers
 
-El repositorio permanece en GitHub y el Worker sirve el build de producción de Vite. La configuración está en pwa/wrangler.jsonc: compila la PWA y publica pwa/dist como assets estáticos con fallback SPA.
+El repositorio permanece en GitHub y el Worker sirve el build de produccion de Vite. wrangler.jsonc en la raiz y pwa/wrangler.jsonc cubren los dos directorios raiz posibles de Cloudflare; ambos compilan la PWA y publican dist como assets estaticos con fallback SPA.
 
 ## Conectar el repositorio
 
-En Cloudflare Dashboard, abrir Workers & Pages → partes-diarios → Settings → Build y conectar el repositorio osva604-creator/Partes-Diarios, rama main, con directorio raíz pwa.
+En Cloudflare Dashboard, abrir Workers & Pages -> partes-diarios -> Settings -> Build y conectar el repositorio osva604-creator/Partes-Diarios, rama main. Se recomienda fijar el directorio raiz en pwa; si Cloudflare usa la raiz del repositorio, tambien esta cubierta por wrangler.jsonc.
 
 Configurar:
 
@@ -21,4 +21,4 @@ Una vez guardados los ajustes, volver a ejecutar el build/deploy. La URL del Wor
 
 ## Estado
 
-El sitio existente respondía HTTP 200 pero servía el index.html de desarrollo de Vite (/src/main.tsx); no publicaba los bundles ni el manifiesto de producción. La configuración de Wrangler corrige el directorio de assets al build dist.
+El sitio existente respondia HTTP 200 pero servia el index.html de desarrollo de Vite (/src/main.tsx); no publicaba los bundles ni el manifiesto de produccion. La configuracion de Wrangler corrige el directorio de assets al build dist. El primer build con la configuracion anidada termino exitosamente, pero la URL publica aun entregaba la version anterior; se agrego configuracion en la raiz para cubrir la raiz efectiva del Worker.
