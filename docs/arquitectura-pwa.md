@@ -7,7 +7,7 @@
 - Región: `us-east-1`
 - URL: `https://dfwslamasfoscxlyzryr.supabase.co`
 - Estado al 30/10/2026: proyecto activo; esquema, políticas RLS y RPC de creación atómica verificados en el proyecto conectado.
-- Migraciones locales: `20261029192631_initial_agricultural_parts`, `20261029192647_tighten_part_permissions` y `20261029195000_atomic_report_creation`.
+- Migraciones locales: `20261029192631_initial_agricultural_parts`, `20261029192647_tighten_part_permissions`, `20261029193222_atomic_report_creation`, `20261103185852_fix_report_sequence_rpc_access`, `20261104174243_add_front_management` y `20261104180942_add_front_task_member_management`.
 
 La clave publishable/anon se configura mediante `.env.local`, nunca se copia al código fuente. Nunca usar service-role/secret key en navegador. Las tablas están en `public` con RLS forzado para que la integración con PostgREST funcione con el endpoint estándar.
 
@@ -46,10 +46,10 @@ Operación: `fronts`, `front_members`, `front_task_members`, `work_cycles`, `dai
 
 ## Estado de implementación
 
-- Implementado: login por correo/contraseña, sesión persistente, lectura de catálogos activos, formulario para una tarea, personal de frente, distribución igualitaria y guardado en `create_daily_report`.
+- Implementado: login por correo/contraseña, sesión persistente, lectura de catálogos activos, formulario de una tarea, asignaciones por tarea, modo de cantidad total o individual, distribución igualitaria, guardado en `create_daily_report` y administración inicial de frentes con integrantes y máquina habitual por tarea.
 - Maestros cargados en Supabase: 27 fincas, 619 lotes, 299 operaciones, 561 personas, 517 máquinas y 149 insumos; todos están activos. Los dos IDs de lote repetidos (`0010401` y `0201601`) corresponden a variedades distintas del mismo lote: se consolidaron sumando superficie bruta, neta y surcos, y conservando ambas variedades. Nueve equipos con IDs internos repetidos recibieron un `equipment_code` compuesto; sus códigos visibles se conservaron.
-- No se cargaron frentes porque no hay un archivo maestro de frentes. Falta configurar al menos uno antes de guardar partes desde la PWA.
-- Pendiente: administración de frentes, cargas con varias tareas, ciclo de ausencias/reemplazos/maquinaria por persona, borradores y cola offline, resumen de avance, revisión documental y PDF.
+- Hay dos frentes ficticios activos de prueba; antes de operar, crear/configurar los frentes reales y sus equipos por tarea (`front_task_members`).
+- Pendiente: consulta de partes/avance, carga con varias tareas, ausencias/reemplazos/maquinaria por persona, insumos, borradores y cola offline, revisión documental, PDF y envío.
 - El modo sin conexión está limitado al shell cacheado; todavía no se guardan partes offline.
-- Para ejecutar: `cd pwa`, copiar `.env.example` a `.env.local`, configurar URL y clave publishable, y usar `npm run dev`. No incluir claves secret/service-role en el cliente.
+- Para ejecutar localmente: `cd pwa`, copiar `.env.example` a `.env.local`, configurar URL y clave publishable, y usar `npm run dev`. La publicación se prepara desde GitHub Actions a GitHub Pages; la clave en el bundle es publishable y las políticas RLS controlan el acceso. No incluir claves secret/service-role en el cliente.
 

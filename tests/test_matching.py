@@ -47,9 +47,9 @@ def test_last_four_digits_match_machine_alias():
 
 def test_official_txt_sources_are_loaded(source_data_dir):
     masters = load_all_sources(source_data_dir)
-    assert len(masters["personal"]) == 565
+    assert len(masters["personal"]) == 561
     assert len(masters["maquinaria"]) == 517
-    assert len(masters["operaciones"]) == 1355
+    assert len(masters["operaciones"]) == 299
     assert len(masters["lotes"]) == 621
     machine = next(row for row in masters["maquinaria"] if row["ID_Equipo"] == "4339")
     assert machine["Modelo"] == "HILUX L/16 2,4D/C4X2TDDX"

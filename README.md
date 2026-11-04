@@ -4,9 +4,9 @@
 
 El trabajo de reconstrucción para PC y móvil está en `pwa/`. El relevamiento funcional está en `docs/relevamiento-funcional.md` y las decisiones técnicas en `docs/arquitectura-pwa.md`.
 
-Para iniciar el frontend: `cd pwa`, copiar `.env.example` a `.env.local`, colocar la URL y la clave publishable del proyecto **Partes Diarios**, luego ejecutar `npm install` y `npm run dev`. No colocar claves secret/service-role en variables `VITE_` ni en el cliente.
+Para iniciar el frontend localmente: `cd pwa`, copiar `.env.example` a `.env.local`, colocar la URL y la clave publishable del proyecto **Partes Diarios**, luego ejecutar `npm ci` y `npm run dev`. La PWA se publica en GitHub Pages desde la rama `main`: https://osva604-creator.github.io/Partes-Diarios/. No colocar claves secret/service-role en variables `VITE_` ni en el cliente.
 
-La PWA ya permite iniciar sesión, consultar los datos maestros y guardar un parte simple de una tarea en Supabase. Los catálogos maestros ya están cargados; para empezar a registrar partes falta crear y configurar al menos un frente. Todavía no incluye sincronización offline, revisión de partes ni generación de PDF. La guía del estado y próximos pasos está en `docs/arquitectura-pwa.md`.
+La PWA permite iniciar sesión, consultar los datos maestros, configurar frentes por tarea y guardar un parte simple en Supabase. Para empezar, ingresá con una cuenta activa y configurá los frentes reales en **Frentes**. Todavía no incluye sincronización offline, consulta del avance, revisión de partes ni generación de PDF. La matriz viva y los próximos pasos están en `docs/relevamiento-y-paridad-funcional.md`.
 
 Aplicación para interpretar y registrar partes diarios agrícolas.
 
@@ -73,7 +73,7 @@ vigente y debe aprobarse una nueva versión.
 El número de WhatsApp y el texto sugerido se guardan por usuario en
 `Configuración`. El mensaje admite `{id}` y `{fecha}`.
 
-En `Frentes` podés conservar y editar el personal y sus vehículos habituales.
+En `Frentes` podés configurar, para cada operación, las personas y sus máquinas habituales. La carga del parte recupera ese equipo al elegir frente y operación.
 ## Carga rápida mediante texto
 
 En `Carga manual`, escribí el parte con nombres o códigos. Por ejemplo:

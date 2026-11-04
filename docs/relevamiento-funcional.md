@@ -2,11 +2,12 @@
 
 Estado: primer relevamiento del código actual, 29/10/2026. Este documento sirve como especificación de paridad para la reconstrucción PWA. Las reglas marcadas como “confirmar” requieren contraste con usuarios antes de cerrar la migración.
 
-## Estado actual de la reconstrucción (30/10/2026)
+## Estado actual de la reconstrucción (04/11/2026)
 
-- La PWA implementa autenticación Supabase, lectura de catálogos activos y carga inicial de una tarea mediante la RPC transaccional `create_daily_report`.
-- La base conectada tiene el esquema, la RPC y los catálogos maestros activos: 27 fincas, 619 lotes, 299 operaciones, 561 personas, 517 máquinas y 149 insumos. Aún no hay frentes; la carga operativa requiere crear/configurar al menos uno.
-- La carga inicial permite elegir una finca, lote, operación, frente y personas; reparte el total en partes iguales. Aún no cubre paridad funcional con la app Streamlit.
+- La PWA implementa autenticación Supabase, lectura de catálogos activos, carga de una tarea mediante la RPC transaccional `create_daily_report` y administración de frentes con equipo y máquina habitual por tarea.
+- La base conectada tiene el esquema, las RPC y los catálogos maestros activos: 27 fincas, 619 lotes, 299 operaciones, 561 personas, 517 máquinas y 149 insumos. Hay dos frentes ficticios de prueba; no son configuraciones operativas.
+- La carga actual permite elegir finca, lote, operación, frente y equipo configurado, y guardar una tarea. El modo de cantidad individual registra el valor por persona y suma las asignaciones para obtener el total de la tarea.
+- La PWA configura personal/máquina por tarea. No cubre consulta de avance, carga de varias tareas, carga por texto, corrección, PDF ni envío. La paridad funcional sigue incompleta.
 - Las filas repetidas de `0010401` y `0201601` se consolidaron como variedades del mismo lote: se sumaron superficies y surcos, y se conservaron ambas variedades en el registro.
 
 ## Módulos y flujos observados
