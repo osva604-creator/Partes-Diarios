@@ -51,5 +51,5 @@ Operación: `fronts`, `front_members`, `front_task_members`, `work_cycles`, `dai
 - Hay dos frentes ficticios activos de prueba; antes de operar, crear/configurar los frentes reales y sus equipos por tarea (`front_task_members`).
 - Pendiente: consulta de partes/avance, carga con varias tareas, ausencias/reemplazos/maquinaria por persona, insumos, borradores y cola offline, revisión documental, PDF y envío.
 - El modo sin conexión está limitado al shell cacheado; todavía no se guardan partes offline.
-- Para ejecutar localmente: `cd pwa`, copiar `.env.example` a `.env.local`, configurar URL y clave publishable, y usar `npm run dev`. La guía de publicación Cloudflare Pages está en `docs/despliegue-cloudflare.md`; la clave del bundle es publishable y RLS controla el acceso. No incluir claves secret/service-role en el cliente.
+- Para ejecutar localmente: `cd pwa`, copiar `.env.example` a `.env.local`, configurar URL y clave publishable, y usar `npm run dev`. La guía de publicación Cloudflare Workers está en `docs/despliegue-cloudflare-workers.md`; la clave del bundle es publishable y RLS controla el acceso. No incluir claves secret/service-role en el cliente.
 
