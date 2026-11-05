@@ -14,11 +14,11 @@ type Machine = { machine_code: string; operational_group: string; brand: string;
 type Front = { id: string; name: string; created_by: string; active: boolean }
 type FrontTaskMember = { operation_code: string; personnel_code: string; machine_code: string | null }
 type AllocationDraft = { attendance: string; quantity: string; replacement_code: string; person_hours: string; machine_start_time: string; machine_end_time: string }
-type Catalogs = { farms: Farm[]; lots: Lot[]; operations: Operation[]; personnel: Person[]; machines: Machine[]; fronts: Front[]; costCenters: CostCenter[]; groups: OperationGroup[]; inputs: InputCatalogItem[]; centerGroups: { cost_center_id: string; group_code: string }[]; groupOperations: { group_code: string; operation_code: string }[]; operationInputs: { operation_code: string; input_code: string }[]; operationMachines: { operation_code: string; machine_code: string }[] }
+type Catalogs = { farms: Farm[]; lots: Lot[]; operations: Operation[]; personnel: Person[]; machines: Machine[]; fronts: Front[]; costCenters: CostCenter[]; groups: OperationGroup[]; inputs: InputCatalogItem[]; centerGroups: { cost_center_id: string; group_code: string }[]; groupOperations: { group_code: string; operation_code: string }[]; operationInputs: { operation_code: string; input_code: string }[] }
 type Notice = { kind: 'error' | 'success'; text: string }
 type ReportRow = Record<string, any>
 
-const emptyCatalogs: Catalogs = { farms: [], lots: [], operations: [], personnel: [], machines: [], fronts: [], costCenters: [], groups: [], inputs: [], centerGroups: [], groupOperations: [], operationInputs: [], operationMachines: [] }
+const emptyCatalogs: Catalogs = { farms: [], lots: [], operations: [], personnel: [], machines: [], fronts: [], costCenters: [], groups: [], inputs: [], centerGroups: [], groupOperations: [], operationInputs: [] }
 const today = () => {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -31,6 +31,25 @@ function errorText(error: unknown) {
 function allocationsInvalidReplacement(details: AllocationDraft[], personnel: Person[]) {
   const activeCodes = new Set(personnel.map((person) => person.employee_code))
   return details.some((detail) => detail.replacement_code.trim() && !activeCodes.has(detail.replacement_code.trim()))
+}
+
+function normalizedMachineGroup(group: string) {
+  const normalized = group.trim().toLocaleUpperCase()
+  return normalized === 'COSECHADORAS' ? 'MAQUINAS COSECHADORAS' : normalized
+}
+
+function machinesForOperation(operation: Operation | undefined, machines: Machine[]) {
+  if (!operation || operation.task_type === 'Manual') return []
+  if (operation.machine_groups.length === 0) return machines
+  const allowedGroups = new Set(operation.machine_groups.map(normalizedMachineGroup))
+  return machines.filter((machine) => allowedGroups.has(normalizedMachineGroup(machine.operational_group)))
+}
+
+function isMachineCompatible(operation: Operation, machine: Machine) {
+  if (operation.task_type === 'Manual') return false
+  if (operation.machine_groups.length === 0) return true
+  const allowedGroups = new Set(operation.machine_groups.map(normalizedMachineGroup))
+  return allowedGroups.has(normalizedMachineGroup(machine.operational_group))
 }
 
 function MachinePicker({
@@ -137,7 +156,7 @@ export default function App() {
     setLoading(true)
     setNotice(null)
     try {
-      const [farms, lots, operations, personnel, machines, fronts, costCenters, groups, inputs, centerGroups, groupOperations, operationInputs, operationMachines] = await Promise.all([
+      const [farms, lots, operations, personnel, machines, fronts, costCenters, groups, inputs, centerGroups, groupOperations, operationInputs] = await Promise.all([
         supabase.from('farms').select('id,name').eq('active', true).order('name'),
         supabase.from('lots').select('id,farm_id,lot_code,lot_name,crop,variety,net_area,gross_area,furrows,planting_year,selectable,agronomic_data_available,totvs_location_id,suggested_cost_center_id,suggested_cost_center_name').eq('active', true).order('lot_code'),
         supabase.from('operations').select('operation_code,name,unit,task_type,machine_groups,default_target,allows_inputs').eq('active', true).order('operation_code'),
@@ -150,12 +169,13 @@ export default function App() {
         supabase.from('cost_center_operation_groups').select('cost_center_id,group_code'),
         supabase.from('operation_group_operations').select('group_code,operation_code'),
         supabase.from('operation_inputs').select('operation_code,input_code'),
-        supabase.from('operation_machines').select('operation_code,machine_code'),
       ])
-      const result = [farms, lots, operations, personnel, machines, fronts, costCenters, groups, inputs, centerGroups, groupOperations, operationInputs, operationMachines]
+      const result = [farms, lots, operations, personnel, machines, fronts, costCenters, groups, inputs, centerGroups, groupOperations, operationInputs]
       const failed = result.find((item) => item.error)
       if (failed?.error) throw failed.error
-      setCatalogs({ farms: farms.data ?? [], lots: lots.data ?? [], operations: operations.data ?? [], personnel: personnel.data ?? [], machines: machines.data ?? [], fronts: fronts.data ?? [], costCenters: costCenters.data ?? [], groups: groups.data ?? [], inputs: inputs.data ?? [], centerGroups: centerGroups.data ?? [], groupOperations: groupOperations.data ?? [], operationInputs: operationInputs.data ?? [], operationMachines: operationMachines.data ?? [] })
+      // operation_machines expands group rules into ~29k rows; its REST response is capped, so it cannot safely drive client filtering.
+      // The full rules live on operations.machine_groups and the machine catalog is small enough to load completely.
+      setCatalogs({ farms: farms.data ?? [], lots: lots.data ?? [], operations: operations.data ?? [], personnel: personnel.data ?? [], machines: machines.data ?? [], fronts: fronts.data ?? [], costCenters: costCenters.data ?? [], groups: groups.data ?? [], inputs: inputs.data ?? [], centerGroups: centerGroups.data ?? [], groupOperations: groupOperations.data ?? [], operationInputs: operationInputs.data ?? [] })
     } catch (error) {
       setNotice({ kind: 'error', text: `No se pudieron cargar los datos: ${errorText(error)}` })
     } finally { setLoading(false) }
@@ -214,21 +234,11 @@ export default function App() {
   const eligiblePeople = catalogs.personnel.filter((person) => members.some((member) => member.personnel_code === person.employee_code))
   const selectedManageMembers = frontTaskMembers.filter((member) => member.operation_code === manageOperationCode)
   const manageOperation = catalogs.operations.find((operation) => operation.operation_code === manageOperationCode)
-  const manageMachines = manageOperation?.task_type === 'Manual'
-    ? []
-    : manageOperation && catalogs.operationMachines.some((row) => row.operation_code === manageOperation.operation_code)
-      ? catalogs.machines.filter((machine) => catalogs.operationMachines.some((row) => row.operation_code === manageOperation.operation_code && row.machine_code === machine.machine_code))
-      : manageOperation?.machine_groups.length
-        ? catalogs.machines.filter((machine) => manageOperation.machine_groups.some((group) => group.trim().toLocaleUpperCase() === machine.operational_group.trim().toLocaleUpperCase()))
-        : catalogs.machines
+  const manageMachines = machinesForOperation(manageOperation, catalogs.machines)
   const matchingManagePeople = catalogs.personnel.filter((person) => `${person.full_name} ${person.employee_code}`.toLocaleLowerCase().includes(frontPeopleSearch.trim().toLocaleLowerCase()))
   const manageableFronts = catalogs.fronts.filter((front) => appRole === 'administrador' || front.created_by === session?.user.id)
   const manageFront = manageableFronts.find((front) => front.id === manageFrontId)
-  const eligibleMachines = selectedOperation && catalogs.operationMachines.some((row) => row.operation_code === selectedOperation.operation_code)
-    ? catalogs.machines.filter((machine) => catalogs.operationMachines.some((row) => row.operation_code === selectedOperation.operation_code && row.machine_code === machine.machine_code))
-    : selectedOperation?.machine_groups.length
-      ? catalogs.machines.filter((machine) => selectedOperation.machine_groups.some((group) => group.trim().toLocaleUpperCase() === machine.operational_group.trim().toLocaleUpperCase()))
-    : catalogs.machines
+  const eligibleMachines = machinesForOperation(selectedOperation, catalogs.machines)
   const filteredReports = useMemo(() => reports.filter((report) => {
     if (reportFrom && report.report_date < reportFrom) return false
     if (reportTo && report.report_date > reportTo) return false
@@ -531,9 +541,7 @@ export default function App() {
           const machine = row.machine_key ? catalogs.machines.find((item) => item.machine_code === row.machine_key) : null
           if (!person || (row.machine_key && !machine)) throw new Error(`La tarea ${index + 1}: hay una persona o máquina que no está activa.`)
           if (machine && operation.task_type === 'Manual') throw new Error(`La tarea ${index + 1}: una tarea manual no puede tener máquina.`)
-          const compatible = catalogs.operationMachines.some((item) => item.operation_code === operation.operation_code)
-            ? catalogs.operationMachines.some((item) => item.operation_code === operation.operation_code && item.machine_code === row.machine_key)
-            : !operation.machine_groups.length || operation.machine_groups.some((group) => group.trim().toLocaleUpperCase() === machine?.operational_group.trim().toLocaleUpperCase())
+          const compatible = machine ? isMachineCompatible(operation, machine) : !row.machine_key
           if (machine && !compatible) throw new Error(`La tarea ${index + 1}: la máquina no es compatible con la operación.`)
           const amount = Number(row.quantity ?? 0)
           const attendance = row.attendance ?? 'Presente'
