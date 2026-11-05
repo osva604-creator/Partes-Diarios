@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "deploy": "wrangler deploy",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b --pretty"
   },
+  "packageManager": "npm@11.19.1",
   "dependencies": {
     "@supabase/supabase-js": "^2.90.0",
     "lucide-react": "^0.468.0",
+    "pdf-lib": "^1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1"
@@ -22,7 +25,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "~5.7.2",
     "vite": "^6.0.7",
-    "vite-plugin-pwa": "^0.21.1"
+    "vite-plugin-pwa": "^0.21.1",
+    "wrangler": "4.158.0"
   }
 }
-

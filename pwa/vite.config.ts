@@ -4,6 +4,17 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/@pdf-lib/standard-fonts/')) return 'pdf-fonts'
+          if (id.includes('/node_modules/pdf-lib/')) return 'pdf-generation'
+          if (id.includes('/node_modules/@supabase/')) return 'supabase-client'
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
