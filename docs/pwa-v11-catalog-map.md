@@ -43,6 +43,6 @@ La migración `20261105120000_pwa_v11_catalogs_and_report_context.sql` agrega el
 ## Hallazgos de validacion del paquete
 
 - La exportacion de produccion esta guardada en la carpeta ignorada `supabase/.temp/`; conteos y estado del proyecto se documentan en `docs/pwa-v11-supabase-review.md`.
-- `Maquinaria.csv` tiene 504 filas y 503 valores distintos de `ID_Equipo`. Las dos filas con el mismo ID no son iguales y discrepan en codigo de equipo y atributos. No se eligio una fila por inferencia.
-- La implementacion V1.1 lee `Operacion_Insumos.csv` con pandas y usa el campo `Insumos` como indicador `SI/NO` para `allows_inputs`; no modela compatibilidad por producto. Esa lectura da 283 filas, 282 claves y un duplicado exacto. Las relaciones `operation_inputs` quedan vacias, por lo que en esas operaciones la PWA muestra todos los insumos activos.
-- Se aplicaron la migracion base y ajustes de politicas/validaciones en Supabase; las tablas nuevas siguen vacias hasta resolver estos hallazgos y calcular un plan de upsert con diferencias exactas.
+- `Maquinaria.csv` tiene 504 codigos operativos `Equipo` unicos y 503 `ID_Equipo` distintos. La migracion agrega `machine_id` como PK surrogate; conserva `machine_code=Equipo` unico y guarda los dos valores `ID_Equipo` repetidos en `equipment_code`/`source_data`.
+- La implementacion V1.1 lee `Operacion_Insumos.csv` con pandas y usa el campo `Insumos` como indicador `SI/NO` para `allows_inputs`; no modela compatibilidad por producto. Esa lectura da 283 filas, 282 claves y un duplicado exacto. Las relaciones `operation_inputs` quedan vacias; las operaciones que admiten insumos muestran todos los insumos activos.
+- Se aplicaron migraciones de catalogos y validaciones; el upsert transaccional quedo cargado en Supabase. El importador repetible esta en `scripts/prepare_pwa_v11_catalog_import.py`; los datos y SQL generados quedan bajo `supabase/.temp/`, ignorado por Git.
