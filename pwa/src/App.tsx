@@ -129,9 +129,7 @@ export default function App() {
   const [lotId, setLotId] = useState('')
   const [operationCode, setOperationCode] = useState('')
   const [frontId, setFrontId] = useState('')
-  const [quantity, setQuantity] = useState('')
   const [targetQuantity, setTargetQuantity] = useState('')
-  const [allocationMode, setAllocationMode] = useState('Total a repartir')
   const [selectedPeople, setSelectedPeople] = useState<string[]>([])
   const [notes, setNotes] = useState('')
   const [savedReport, setSavedReport] = useState<{ report_code: string } | null>(null)
@@ -158,7 +156,7 @@ export default function App() {
   const [newFrontName, setNewFrontName] = useState('')
   const [manageOperationCode, setManageOperationCode] = useState('')
   const [frontPeopleSearch, setFrontPeopleSearch] = useState('')
-  const [openCycle, setOpenCycle] = useState<{ allocation_mode: string; target_quantity: number; target_available: boolean; unit: string } | null>(null)
+  const [openCycle, setOpenCycle] = useState<{ target_quantity: number; target_available: boolean; unit: string } | null>(null)
 
   useEffect(() => {
     if (!supabase) { setSessionReady(true); return }
@@ -247,13 +245,12 @@ export default function App() {
     return Boolean(groupCode) && groupsForOperation.includes(groupCode) && permittedGroups.includes(groupCode)
   })
   const currentUnit = openCycle?.unit ?? selectedOperation?.unit ?? ''
-  const completedWorkQuantity = allocationMode === 'Total a repartir'
-    ? Number(quantity || 0)
-    : selectedPeople.reduce((total, personCode) => {
-      const detail = allocationDrafts[personCode]
-      const amount = Number(detail?.quantity)
-      return total + (detail?.attendance !== 'Ausente' && Number.isFinite(amount) ? amount : 0)
-    }, 0)
+  const allocationMode = 'Cantidad individual'
+  const completedWorkQuantity = selectedPeople.reduce((total, personCode) => {
+    const detail = allocationDrafts[personCode]
+    const amount = Number(detail?.quantity)
+    return total + (detail?.attendance !== 'Ausente' && Number.isFinite(amount) ? amount : 0)
+  }, 0)
   const eligiblePeople = catalogs.personnel.filter((person) => members.some((member) => member.personnel_code === person.employee_code))
   const selectedManageMembers = frontTaskMembers.filter((member) => member.operation_code === manageOperationCode)
   const manageOperation = catalogs.operations.find((operation) => operation.operation_code === manageOperationCode)
@@ -292,21 +289,18 @@ export default function App() {
     let cancelled = false
     const lot = catalogs.lots.find((item) => item.id === lotId)
     const operation = catalogs.operations.find((item) => item.operation_code === operationCode)
-    supabase.from('work_cycles').select('allocation_mode,target_quantity,target_available,unit,cycle_no').eq('lot_id', lotId).eq('operation_code', operationCode).eq('status', 'Abierto').order('cycle_no', { ascending: false }).limit(1).maybeSingle()
+    supabase.from('work_cycles').select('target_quantity,target_available,unit,cycle_no').eq('lot_id', lotId).eq('operation_code', operationCode).eq('status', 'Abierto').order('cycle_no', { ascending: false }).limit(1).maybeSingle()
       .then(({ data, error }) => {
         if (cancelled) return
         if (error) { setNotice({ kind: 'error', text: `No se pudo consultar el avance existente: ${error.message}` }); return }
         if (data) {
           setOpenCycle(data)
-          setAllocationMode(data.allocation_mode)
           setTargetQuantity(data.target_available ? String(data.target_quantity) : '')
         } else {
           setOpenCycle(null)
           const unit = operation?.unit.trim().toLocaleUpperCase() ?? ''
-          const mode = ['SC', 'HA', 'TN'].includes(unit) ? 'Total a repartir' : 'Cantidad individual'
-          setAllocationMode(mode)
           const inventoryTarget = unit === 'SC' ? lot?.furrows : unit === 'HA' ? (lot?.net_area ?? lot?.gross_area) : null
-          setTargetQuantity(mode === 'Total a repartir' && inventoryTarget ? String(inventoryTarget) : '')
+          setTargetQuantity(inventoryTarget ? String(inventoryTarget) : '')
         }
       })
     return () => { cancelled = true }
@@ -328,7 +322,7 @@ export default function App() {
   }, [manageFrontId, manageFront?.name, catalogs.operations])
 
   useEffect(() => {
-    setFarmId(''); setLotId(''); setOperationCode(''); setFrontId(''); setQuantity(''); setTargetQuantity(''); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); setInputLines([]); setSavedReport(null); setDraftTasks([]); setDraftIdempotencyKey(''); setDraftFingerprint('')
+    setFarmId(''); setLotId(''); setOperationCode(''); setFrontId(''); setTargetQuantity(''); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); setInputLines([]); setSavedReport(null); setDraftTasks([]); setDraftIdempotencyKey(''); setDraftFingerprint('')
   }, [session?.user.id])
 
   useEffect(() => { setChosenCostCenter(''); setGroupCode('') }, [lotId])
@@ -391,16 +385,12 @@ export default function App() {
   async function saveReport(event: FormEvent) {
     event.preventDefault()
     if (!supabase || !selectedOperation || !selectedLot || !selectedFront) return
-    const amount = allocationMode === 'Total a repartir' ? Number(quantity) : 0
     const people = selectedPeople
-    if ((allocationMode === 'Total a repartir' && (!Number.isFinite(amount) || amount <= 0)) || people.length === 0) {
-      setNotice({ kind: 'error', text: 'Ingresá una cantidad válida y seleccioná al menos una persona.' }); return
+    if (people.length === 0) {
+      setNotice({ kind: 'error', text: 'Seleccioná al menos una persona.' }); return
     }
     const unit = (openCycle?.unit ?? selectedOperation.unit).trim().toLocaleUpperCase()
     const integerAllocation = unit === 'SC'
-    if (integerAllocation && !Number.isInteger(amount)) {
-      setNotice({ kind: 'error', text: 'La cantidad en surcos debe ser un número entero.' }); return
-    }
     if (selectedOperation.task_type === 'Manual' && people.some((personCode) => memberMachines[personCode])) {
       setNotice({ kind: 'error', text: 'La tarea seleccionada es manual y no admite maquinaria.' }); return
     }
@@ -421,21 +411,14 @@ export default function App() {
       setNotice({ kind: 'error', text: 'Revisá la dosis y el consumo de los insumos.' }); return
     }
     const details = people.map((personCode) => allocationDrafts[personCode] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: '12', machine_start_time: '', machine_end_time: '' })
-    const fixedTotal = details.reduce((total, detail) => total + (detail.attendance === 'Cantidad fija' ? Number(detail.quantity || 0) : 0), 0)
-    const absentCount = details.filter((detail) => detail.attendance === 'Ausente').length
-    const dynamicCount = details.filter((detail) => detail.attendance === 'Presente').length
-    const remainderToShare = allocationMode === 'Total a repartir' ? amount - fixedTotal : 0
-    if (allocationMode === 'Total a repartir' && (fixedTotal > amount || (dynamicCount === 0 && Math.abs(fixedTotal - amount) > 0.001))) {
-      setNotice({ kind: 'error', text: 'Las cantidades fijas deben caber dentro del total; sin personas presentes, deben cubrirlo completo.' }); return
-    }
     if (allocationMode === 'Cantidad individual' && details.some((detail) => detail.attendance !== 'Ausente' && (!detail.quantity.trim() || Number(detail.quantity) < 0))) {
       setNotice({ kind: 'error', text: 'Ingresá una cantidad individual válida para cada persona presente o fija.' }); return
     }
     if (details.some((detail) => detail.attendance === 'Cantidad fija' && (!detail.quantity.trim() || Number(detail.quantity) < 0))) {
       setNotice({ kind: 'error', text: 'Ingresá la cantidad de cada persona con cantidad fija.' }); return
     }
-    if (integerAllocation && details.some((detail) => detail.attendance === 'Cantidad fija' && !Number.isInteger(Number(detail.quantity)))) {
-      setNotice({ kind: 'error', text: 'Las cantidades fijas en surcos deben ser enteras.' }); return
+    if (integerAllocation && details.some((detail) => detail.attendance !== 'Ausente' && !Number.isInteger(Number(detail.quantity)))) {
+      setNotice({ kind: 'error', text: 'Las cantidades por persona en surcos deben ser enteras.' }); return
     }
     if (details.some((detail) => !Number.isFinite(Number(detail.person_hours)) || Number(detail.person_hours) < 0)) {
       setNotice({ kind: 'error', text: 'Las horas por persona deben ser un número válido.' }); return
@@ -446,16 +429,10 @@ export default function App() {
     if (details.some((detail) => Boolean(detail.machine_start_time) !== Boolean(detail.machine_end_time) || (detail.machine_start_time && (!Number.isInteger(Number(detail.machine_start_time)) || !Number.isInteger(Number(detail.machine_end_time)) || Number(detail.machine_end_time) < Number(detail.machine_start_time))))) {
       setNotice({ kind: 'error', text: 'Las lecturas de máquina deben ser enteras, estar completas y terminar después del inicio.' }); return
     }
-    const dynamicAmount = dynamicCount > 0 ? remainderToShare / dynamicCount : 0
-    const baseDynamic = integerAllocation ? Math.floor(dynamicAmount) : Math.floor(dynamicAmount * 10000) / 10000
-    const shareRemainder = integerAllocation ? Math.round(remainderToShare - baseDynamic * dynamicCount) : Math.round((remainderToShare - baseDynamic * dynamicCount) * 10000) / 10000
     const allocations = people.map((personCode, index) => {
       const detail = details[index]
       const assignedMachine = selectedOperation.task_type === 'Manual' ? '' : memberMachines[personCode] ?? ''
-      const dynamicIndex = details.slice(0, index).filter((item) => item.attendance === 'Presente').length
-      const assignedQuantity = detail.attendance === 'Ausente' ? 0
-        : detail.attendance === 'Cantidad fija' || allocationMode === 'Cantidad individual' ? Number(detail.quantity)
-          : baseDynamic + (dynamicIndex < Math.round(shareRemainder * (integerAllocation ? 1 : 10000)) ? (integerAllocation ? 1 : 0.0001) : 0)
+      const assignedQuantity = detail.attendance === 'Ausente' ? 0 : Number(detail.quantity)
       return {
         personnel_code: personCode,
         machine_code: assignedMachine,
@@ -475,12 +452,6 @@ export default function App() {
     if (integerAllocation && allocations.some((allocation) => !Number.isInteger(allocation.quantity))) {
       setNotice({ kind: 'error', text: 'La distribución en surcos debe usar cantidades enteras.' }); return
     }
-    if (allocationMode === 'Total a repartir' && Math.abs(taskQuantity - amount) > 0.001) {
-      setNotice({ kind: 'error', text: 'La suma de cantidades asignadas no coincide con el trabajo.' }); return
-    }
-    if (allocationMode === 'Total a repartir' && absentCount === people.length) {
-      setNotice({ kind: 'error', text: 'No se puede distribuir un total entre personas ausentes.' }); return
-    }
     if (selectedOperation.machine_groups.length && !people.some((personCode, index) => details[index].attendance !== 'Ausente' && memberMachines[personCode])) {
       setNotice({ kind: 'error', text: 'Asigná al menos una máquina compatible a las personas que la necesitan.' }); return
     }
@@ -495,8 +466,8 @@ export default function App() {
       operation_code: operationCode,
       front_id: frontId,
       quantity: taskQuantity,
-      target_quantity: allocationMode === 'Total a repartir' ? (targetQuantity.trim() ? Number(targetQuantity) : 0) : 0,
-      target_available: allocationMode === 'Total a repartir' && (openCycle?.target_available ?? Boolean(targetQuantity.trim())),
+      target_quantity: targetQuantity.trim() ? Number(targetQuantity) : 0,
+      target_available: openCycle?.target_available ?? Boolean(targetQuantity.trim()),
       unit: openCycle?.unit ?? selectedOperation.unit,
       allocation_mode: allocationMode,
       crop: selectedLot.crop,
@@ -511,7 +482,7 @@ export default function App() {
       },
     }
     setDraftTasks((current) => [...current, payload])
-    setQuantity(''); setNotes(''); setInputLines([]); setNotice({ kind: 'success', text: `Tarea agregada al borrador (${draftTasks.length + 1}).` })
+    setNotes(''); setInputLines([]); setNotice({ kind: 'success', text: `Tarea agregada al borrador (${draftTasks.length + 1}).` })
     return
   }
 
@@ -532,7 +503,7 @@ export default function App() {
       const report = Array.isArray(data) ? data[0] : data
       setSavedReport(report)
       setNotice({ kind: 'success', text: `Parte ${report?.report_code ?? ''} guardado correctamente.` })
-      setDraftTasks([]); setDraftIdempotencyKey(''); setDraftFingerprint(''); setQuantity(''); setNotes('')
+      setDraftTasks([]); setDraftIdempotencyKey(''); setDraftFingerprint(''); setNotes('')
     }
     setLoading(false)
   }
@@ -799,9 +770,9 @@ export default function App() {
         <section className="form-section"><div className="section-heading"><span>01</span><div><h2>Datos del parte</h2><p>Fecha y número de orden, si corresponde.</p></div></div><div className="field-grid two"><label>Fecha<input type="date" required value={reportDate} disabled={draftTasks.length > 0} onChange={(e) => setReportDate(e.target.value)} /></label><label>Orden de servicio <small>Opcional</small><input value={serviceOrder} onChange={(e) => setServiceOrder(e.target.value)} placeholder="Número de orden" /></label></div></section>
         <section className="form-section"><div className="section-heading"><span>02</span><div><h2>Lote y tarea</h2><p>El avance se acumula en el ciclo abierto del lote y la operación.</p></div></div><div className="field-grid two"><label>Finca<select required value={farmId} onChange={(e) => { setFarmId(e.target.value); setLotId('') }}><option value="">Seleccionar finca</option>{catalogs.farms.map((farm) => <option key={farm.id} value={farm.id}>{farm.name}</option>)}</select></label><label>Lote<select required value={lotId} onChange={(e) => { setLotId(e.target.value); setChosenCostCenter('') }} disabled={!farmId}><option value="">Seleccionar lote</option>{visibleLots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lot_code} · {lot.lot_name || lot.crop}</option>)}</select></label>
           {selectedLot && <><label>Centro de costo<select required={catalogs.costCenters.length > 0} value={effectiveCostCenter} onChange={(e) => { setChosenCostCenter(e.target.value); setGroupCode('') }}><option value="">Elegir centro de costo</option>{catalogs.costCenters.map((center) => <option key={center.cost_center_id} value={center.cost_center_id}>{center.cost_center_id} · {center.name}</option>)}</select>{catalogs.costCenters.length === 0 && <small>El catálogo V1.1 aún no está sincronizado; esta tarea guardará el contexto de centro vacío.</small>}<small>Centro sugerido por ubicación: {selectedLot.suggested_cost_center_id ? `${selectedLot.suggested_cost_center_id} · ${selectedLot.suggested_cost_center_name}` : 'Sin correspondencia; elegí uno manualmente.'}</small>{selectedLot.suggested_cost_center_id && effectiveCostCenter !== selectedLot.suggested_cost_center_id && <small className="helper-text">Aviso: el centro seleccionado difiere del sugerido. La elección quedará registrada en esta tarea.</small>}</label>{effectiveCostCenter && visibleOperationGroups.length > 0 && <label>Grupo de operación<select required value={groupCode} onChange={(e) => setGroupCode(e.target.value)}><option value="">Seleccionar grupo</option>{visibleOperationGroups.map((group) => <option key={group.group_code} value={group.group_code}>{group.group_code} · {group.name}</option>)}</select></label>}<div className="allocation-hint"><span>Datos agronómicos</span><strong>{selectedLot.agronomic_data_available ? 'Disponibles' : 'Incompletos'}</strong><small>{selectedLot.agronomic_data_available ? `Superficie neta: ${selectedLot.net_area ?? 'sin dato'} ha · Surcos: ${selectedLot.furrows ?? 'sin dato'}` : 'Se puede continuar; no se generan objetivos derivados.'}</small></div></>}
-          <label>Tarea<select required value={operationCode} onChange={(e) => { setOperationCode(e.target.value); setQuantity(''); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); setInputLines([]) }}><option value="">Seleccionar tarea</option>{allowedOperations.map((operation) => <option key={operation.operation_code} value={operation.operation_code}>{operation.operation_code} · {operation.name}</option>)}</select>{effectiveCostCenter && catalogs.groups.length > 0 && <small>Filtrada por grupos habilitados para el centro.</small>}</label>{['SC', 'HA', 'TN'].includes(currentUnit.toUpperCase()) && <label>Modo de carga<select value={allocationMode} onChange={(event) => { setAllocationMode(event.target.value); if (event.target.value === 'Cantidad individual') setQuantity('') }}><option value="Total a repartir">Ingresar un total para repartir</option><option value="Cantidad individual">Cantidad por persona (destajo)</option></select><small>Elegí si distribuís un total o cargás lo realizado por cada persona.</small></label>}{allocationMode === 'Total a repartir' && <label>Cantidad total realizada <small>{currentUnit || 'Unidad'}</small><input type="number" inputMode="decimal" min={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} required value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" /></label>}{allocationMode === 'Total a repartir' && <label>Objetivo del lote <small>{openCycle ? 'Del ciclo abierto' : 'Sugerido por datos agronómicos'}</small><input type="number" min="0" step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} value={targetQuantity} onChange={(e) => setTargetQuantity(e.target.value)} readOnly={Boolean(openCycle)} placeholder="Sin dato" /></label>}<div className="allocation-hint"><span>Distribución</span><strong>{allocationMode}</strong>{openCycle && <small>Parte del avance registrado de este lote y tarea.</small>}</div></div></section>
+          <label>Tarea<select required value={operationCode} onChange={(e) => { setOperationCode(e.target.value); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); setInputLines([]) }}><option value="">Seleccionar tarea</option>{allowedOperations.map((operation) => <option key={operation.operation_code} value={operation.operation_code}>{operation.operation_code} · {operation.name}</option>)}</select>{effectiveCostCenter && catalogs.groups.length > 0 && <small>Filtrada por grupos habilitados para el centro.</small>}</label>{['SC', 'HA', 'TN'].includes(currentUnit.toUpperCase()) && <label>Objetivo del lote <small>{openCycle ? 'Del ciclo abierto' : 'Sugerido por datos agronómicos'}</small><input type="number" min="0" step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} value={targetQuantity} onChange={(e) => setTargetQuantity(e.target.value)} readOnly={Boolean(openCycle)} placeholder="Sin dato" /></label>}<div className="allocation-hint"><span>Distribución automática</span><strong>Cantidad por persona · {currentUnit || 'unidad de tarea'}</strong><small>El total del parte se suma a partir de las cantidades de las personas presentes.</small></div></div></section>
         <section className="form-section"><div className="section-heading"><span>03</span><div><h2>Frente y personal</h2><p>El personal y las máquinas se configuran por tarea dentro de cada frente.</p></div></div><div className="field-grid two"><label>Frente<select required value={frontId} onChange={(e) => setFrontId(e.target.value)}><option value="">Seleccionar frente</option>{catalogs.fronts.map((front) => <option key={front.id} value={front.id}>{front.name}</option>)}</select></label></div>
-          {!operationCode && <p className="helper-text">Elegí la tarea para ver los frentes y su equipo configurado.</p>}{operationCode && !frontId && <p className="helper-text">Elegí un frente para ver el personal de esta tarea.</p>}{frontId && eligiblePeople.length === 0 && <p className="helper-text">Este frente no tiene personal configurado para la tarea elegida. Configuralo en Frentes.</p>}{eligiblePeople.length > 0 && <div className="allocation-grid-wrap"><table className="allocation-grid"><thead><tr><th>Incluir</th><th>Legajo</th><th>Apellido y nombre</th><th>Hs persona</th><th>Cant. tarea</th><th>U.M.</th><th>ID vehículo</th><th>Marca y modelo</th><th>Medidor inicio</th><th>Medidor fin</th><th>Dif.</th><th>Estado</th><th>Reemplaza</th></tr></thead><tbody>{eligiblePeople.map((person) => { const assignedMachine = memberMachines[person.employee_code] ?? ''; const machine = catalogs.machines.find((item) => item.machine_code === assignedMachine); const checked = selectedPeople.includes(person.employee_code); const detail = allocationDrafts[person.employee_code] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: '12', machine_start_time: '', machine_end_time: '' }; const updateDetail = (key: keyof AllocationDraft, value: string) => setAllocationDrafts((current) => ({ ...current, [person.employee_code]: { ...detail, [key]: value } })); const meterDifference = detail.machine_start_time !== '' && detail.machine_end_time !== '' ? Number(detail.machine_end_time) - Number(detail.machine_start_time) : null; const quantityEnabled = (allocationMode === 'Cantidad individual' || detail.attendance === 'Cantidad fija') && checked && detail.attendance !== 'Ausente'; return <tr key={person.employee_code} className={checked ? 'is-selected' : ''}><td><input type="checkbox" checked={checked} aria-label={`Incluir a ${person.full_name}`} onChange={(event) => { setSelectedPeople((current) => event.target.checked ? [...current, person.employee_code] : current.filter((code) => code !== person.employee_code)); if (event.target.checked && !Object.hasOwn(memberMachines, person.employee_code)) { const configured = members.find((member) => member.personnel_code === person.employee_code)?.machine_code ?? ''; setMemberMachines((current) => ({ ...current, [person.employee_code]: configured })) } }} /></td><td>{person.employee_code}</td><td className="allocation-grid-name">{person.full_name}</td><td><input aria-label={`Horas de ${person.full_name}`} type="number" min="0" max="24" step="0.25" disabled={!checked} value={detail.person_hours} onChange={(event) => updateDetail('person_hours', event.target.value)} /></td><td>{quantityEnabled ? <input aria-label={`Cantidad de tarea de ${person.full_name}`} type="number" min="0" step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} required value={detail.quantity} onChange={(event) => updateDetail('quantity', event.target.value)} /> : detail.attendance === 'Ausente' ? '0' : '—'}</td><td>{currentUnit || '—'}</td><td>{selectedOperation?.task_type === 'Manual' ? '—' : <select aria-label={`Vehículo de ${person.full_name}`} disabled={!checked} value={assignedMachine} onChange={(event) => setMemberMachines((current) => ({ ...current, [person.employee_code]: event.target.value }))}><option value="">Sin vehículo</option>{eligibleMachines.map((item) => <option key={item.machine_code} value={item.machine_code}>{item.machine_code}</option>)}</select>}</td><td>{machine ? `${machine.brand} ${machine.model}`.trim() : '—'}</td><td><input aria-label={`Medidor inicial de ${person.full_name}`} type="number" min="0" step="1" disabled={!checked || !assignedMachine} value={detail.machine_start_time} onChange={(event) => updateDetail('machine_start_time', event.target.value)} /></td><td><input aria-label={`Medidor final de ${person.full_name}`} type="number" min="0" step="1" disabled={!checked || !assignedMachine} value={detail.machine_end_time} onChange={(event) => updateDetail('machine_end_time', event.target.value)} /></td><td>{meterDifference === null ? '—' : meterDifference}</td><td><select aria-label={`Estado de ${person.full_name}`} disabled={!checked} value={detail.attendance} onChange={(event) => updateDetail('attendance', event.target.value)}><option>Presente</option><option>Ausente</option><option>Cantidad fija</option></select></td><td><input aria-label={`Reemplazo de ${person.full_name}`} list={`personnel-${person.employee_code}`} disabled={!checked} value={detail.replacement_code} onChange={(event) => updateDetail('replacement_code', event.target.value)} placeholder="Legajo" /><datalist id={`personnel-${person.employee_code}`}>{catalogs.personnel.filter((item) => item.employee_code !== person.employee_code).map((item) => <option key={item.employee_code} value={item.employee_code}>{item.full_name}</option>)}</datalist></td></tr> })}</tbody></table></div>}</section>
+          {!operationCode && <p className="helper-text">Elegí la tarea para ver los frentes y su equipo configurado.</p>}{operationCode && !frontId && <p className="helper-text">Elegí un frente para ver el personal de esta tarea.</p>}{frontId && eligiblePeople.length === 0 && <p className="helper-text">Este frente no tiene personal configurado para la tarea elegida. Configuralo en Frentes.</p>}{eligiblePeople.length > 0 && <div className="allocation-grid-wrap"><table className="allocation-grid"><thead><tr><th>Legajo / apellido y nombre</th><th>Hs persona</th><th>Cant. tarea</th><th>U.M.</th><th>ID vehículo</th><th>Marca y modelo</th><th>Medidor: inicio / fin / dif.</th><th>Estado / reemplazo</th></tr></thead><tbody>{eligiblePeople.map((person) => { const assignedMachine = memberMachines[person.employee_code] ?? ''; const machine = catalogs.machines.find((item) => item.machine_code === assignedMachine); const checked = selectedPeople.includes(person.employee_code); const detail = allocationDrafts[person.employee_code] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: '12', machine_start_time: '', machine_end_time: '' }; const updateDetail = (key: keyof AllocationDraft, value: string) => setAllocationDrafts((current) => ({ ...current, [person.employee_code]: { ...detail, [key]: value } })); const meterDifference = detail.machine_start_time !== '' && detail.machine_end_time !== '' ? Number(detail.machine_end_time) - Number(detail.machine_start_time) : null; const quantityEnabled = checked && detail.attendance !== 'Ausente'; return <tr key={person.employee_code} className={checked ? 'is-selected' : ''}><td data-label="Persona"><label className="allocation-person-picker"><input type="checkbox" checked={checked} aria-label={`Incluir a ${person.full_name}`} onChange={(event) => { setSelectedPeople((current) => event.target.checked ? [...current, person.employee_code] : current.filter((code) => code !== person.employee_code)); if (event.target.checked && !Object.hasOwn(memberMachines, person.employee_code)) { const configured = members.find((member) => member.personnel_code === person.employee_code)?.machine_code ?? ''; setMemberMachines((current) => ({ ...current, [person.employee_code]: configured })) } }} /><span><b>{person.employee_code}</b><strong>{person.full_name}</strong></span></label></td><td data-label="Hs persona"><input aria-label={`Horas de ${person.full_name}`} type="number" min="0" max="24" step="0.25" disabled={!checked} value={detail.person_hours} onChange={(event) => updateDetail('person_hours', event.target.value)} /></td><td data-label="Cant. tarea">{quantityEnabled ? <input aria-label={`Cantidad de tarea de ${person.full_name}`} type="number" min="0" step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} required value={detail.quantity} onChange={(event) => updateDetail('quantity', event.target.value)} /> : detail.attendance === 'Ausente' ? '0' : '—'}</td><td data-label="U.M.">{currentUnit || '—'}</td><td data-label="ID vehículo">{selectedOperation?.task_type === 'Manual' ? '—' : <select aria-label={`Vehículo de ${person.full_name}`} disabled={!checked} value={assignedMachine} onChange={(event) => setMemberMachines((current) => ({ ...current, [person.employee_code]: event.target.value }))}><option value="">Sin vehículo</option>{eligibleMachines.map((item) => <option key={item.machine_code} value={item.machine_code}>{item.machine_code}</option>)}</select>}</td><td data-label="Marca y modelo">{machine ? `${machine.brand} ${machine.model}`.trim() : '—'}</td><td data-label="Medidor"><div className="allocation-meter-fields"><label><small>Inicio</small><input aria-label={`Medidor inicial de ${person.full_name}`} type="number" min="0" step="1" disabled={!checked || !assignedMachine} value={detail.machine_start_time} onChange={(event) => updateDetail('machine_start_time', event.target.value)} /></label><label><small>Fin</small><input aria-label={`Medidor final de ${person.full_name}`} type="number" min="0" step="1" disabled={!checked || !assignedMachine} value={detail.machine_end_time} onChange={(event) => updateDetail('machine_end_time', event.target.value)} /></label><b>Dif. {meterDifference === null ? '—' : meterDifference}</b></div></td><td data-label="Estado / reemplazo"><div className="allocation-extra-fields"><select aria-label={`Estado de ${person.full_name}`} disabled={!checked} value={detail.attendance} onChange={(event) => updateDetail('attendance', event.target.value)}><option>Presente</option><option>Ausente</option><option>Cantidad fija</option></select><input aria-label={`Reemplazo de ${person.full_name}`} list={`personnel-${person.employee_code}`} disabled={!checked} value={detail.replacement_code} onChange={(event) => updateDetail('replacement_code', event.target.value)} placeholder="Legajo reemplazo" /><datalist id={`personnel-${person.employee_code}`}>{catalogs.personnel.filter((item) => item.employee_code !== person.employee_code).map((item) => <option key={item.employee_code} value={item.employee_code}>{item.full_name}</option>)}</datalist></div></td></tr> })}</tbody></table></div>}</section>
         {selectedOperation?.allows_inputs && <section className="form-section"><div className="section-heading"><span>04</span><div><h2>Insumos</h2><p>Agregá productos, dosis y consumo para esta tarea.</p></div><button className="secondary-button" type="button" disabled={!catalogs.inputs.length} onClick={() => setInputLines((rows) => [...rows, { input_code: '', dose: '', quantity: '', unit: '' }])}>Agregar insumo</button></div>{inputLines.map((line, index) => { const operationInputCodes = catalogs.operationInputs.filter((row) => row.operation_code === operationCode).map((row) => row.input_code); const compatibleInputs = operationInputCodes.length ? catalogs.inputs.filter((input) => operationInputCodes.includes(input.input_code)) : catalogs.inputs; const basisQuantity = completedWorkQuantity; const dose = Number(line.dose); const inputQuantity = Number(line.quantity); const hasBasis = Number.isFinite(basisQuantity) && basisQuantity > 0; const hasDose = line.dose.trim() !== '' && Number.isFinite(dose) && dose >= 0; const hasQuantity = line.quantity.trim() !== '' && Number.isFinite(inputQuantity) && inputQuantity >= 0; const theoretical = hasBasis && hasDose ? calculateInputTotal(basisQuantity, dose, line.unit) : null; const actualDose = hasBasis && hasQuantity ? calculateActualInputDose(inputQuantity, basisQuantity, line.unit) : null; const doseUnit = inputDoseUnit(line.unit); return <div className="field-grid two" key={`input-${index}`} ><label>Producto<select required value={line.input_code} onChange={(event) => { const selected = catalogs.inputs.find((input) => input.input_code === event.target.value); setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, input_code: event.target.value, unit: selected?.unit ?? '' } : row)) }}><option value="">Seleccionar insumo</option>{compatibleInputs.map((input) => <option key={input.input_code} value={input.input_code}>{input.description} · {input.input_code}</option>)}</select></label><label>Dosis ({doseUnit} / {currentUnit || 'unidad'})<input type="number" min="0" step="0.001" value={line.dose} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, dose: event.target.value } : row))} /></label><label>Consumo real<input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value } : row))} /></label><label>Unidad<input value={line.unit} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, unit: event.target.value } : row))} /></label><div className="allocation-hint full-field"><span>Estimación del insumo</span><strong>Consumo teórico: {theoretical === null ? 'Sin objetivo o dosis' : `${formatInputAmount(theoretical)} ${line.unit || 'unidad'}`}</strong><small>{actualDose === null ? (hasBasis ? `Ingresá el consumo real para calcular la dosis aplicada en ${currentUnit || 'la unidad de tarea'}.` : 'Ingresá la cantidad realizada para hacer el cálculo.') : `Dosis real: ${formatInputAmount(actualDose)} ${doseUnit} / ${currentUnit || 'unidad'} · Base realizada: ${formatInputAmount(basisQuantity)} ${currentUnit || 'unidades'}.`}</small></div><button className="text-button" type="button" onClick={() => setInputLines((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}>Quitar insumo</button></div> })}{catalogs.inputs.length === 0 && <p className="helper-text">El catálogo de insumos todavía no está cargado en Supabase.</p>}</section>}
         <section className="form-section"><div className="section-heading"><span>05</span><div><h2>Observaciones</h2><p>Agregá una nota si hace falta.</p></div></div><label className="full-field">Notas<textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Observaciones del trabajo" /></label></section>
         <div className="form-actions"><span>{draftTasks.length ? 'La tarea se agregará al borrador compartido.' : 'Armá una o más tareas y guardá el documento completo.'}</span><button className="primary-button" disabled={loading || !selectedFront || !selectedLot || !selectedOperation}>{loading ? 'Agregando…' : 'Agregar tarea al borrador'}</button></div>
