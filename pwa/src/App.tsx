@@ -1,6 +1,6 @@
 ﻿import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Cloud, Leaf, LogOut, Plus, RefreshCw, Save, Sprout, Users } from 'lucide-react'
+import { ChevronDown, Cloud, Leaf, LogOut, Plus, RefreshCw, Save, Sprout, Users } from 'lucide-react'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
 
 type Farm = { id: string; name: string }
@@ -31,6 +31,49 @@ function errorText(error: unknown) {
 function allocationsInvalidReplacement(details: AllocationDraft[], personnel: Person[]) {
   const activeCodes = new Set(personnel.map((person) => person.employee_code))
   return details.some((detail) => detail.replacement_code.trim() && !activeCodes.has(detail.replacement_code.trim()))
+}
+
+function MachinePicker({
+  machines,
+  value,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  machines: Machine[]
+  value: string
+  onChange: (machineCode: string) => void
+  label: string
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const selectedMachine = machines.find((machine) => machine.machine_code === value)
+  const searchTerm = search.trim().toLocaleLowerCase()
+  const visibleMachines = searchTerm
+    ? machines.filter((machine) => `${machine.machine_code} ${machine.brand} ${machine.model} ${machine.operational_group}`.toLocaleLowerCase().includes(searchTerm))
+    : machines
+
+  return <div className="machine-picker" onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
+  }}>
+    <button className="machine-picker-trigger" type="button" aria-label={label} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen((current) => !current)}>
+      <span>{selectedMachine ? `${selectedMachine.machine_code} · ${[selectedMachine.brand, selectedMachine.model].filter(Boolean).join(' ')}` : 'Sin maquinaria'}</span>
+      <ChevronDown size={16} aria-hidden="true" />
+    </button>
+    {open && <div className="machine-picker-menu">
+      <label className="machine-picker-search">Buscar por código, marca o modelo<input autoFocus type="search" value={search} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault() }} onChange={(event) => setSearch(event.target.value)} placeholder="Ej.: 10101124 o John Deere" /></label>
+      <div className="machine-picker-options" role="listbox" aria-label="Maquinaria compatible con la tarea">
+        <button type="button" role="option" aria-selected={!value} className={!value ? 'selected' : ''} onClick={() => { onChange(''); setOpen(false); setSearch('') }}>Sin maquinaria</button>
+        {visibleMachines.map((machine) => <button type="button" role="option" aria-selected={value === machine.machine_code} className={value === machine.machine_code ? 'selected' : ''} key={machine.machine_code} onClick={() => { onChange(machine.machine_code); setOpen(false); setSearch('') }}>
+          <span>{machine.machine_code} · {[machine.brand, machine.model].filter(Boolean).join(' ')}</span>
+          <small>{machine.operational_group}</small>
+        </button>)}
+        {visibleMachines.length === 0 && <p className="machine-picker-empty">No hay máquinas compatibles con esa búsqueda.</p>}
+      </div>
+      <small className="machine-picker-count">{visibleMachines.length} de {machines.length} máquinas compatibles</small>
+    </div>}
+  </div>
 }
 
 export default function App() {
@@ -171,11 +214,13 @@ export default function App() {
   const eligiblePeople = catalogs.personnel.filter((person) => members.some((member) => member.personnel_code === person.employee_code))
   const selectedManageMembers = frontTaskMembers.filter((member) => member.operation_code === manageOperationCode)
   const manageOperation = catalogs.operations.find((operation) => operation.operation_code === manageOperationCode)
-  const manageMachines = manageOperation && catalogs.operationMachines.some((row) => row.operation_code === manageOperation.operation_code)
-    ? catalogs.machines.filter((machine) => catalogs.operationMachines.some((row) => row.operation_code === manageOperation.operation_code && row.machine_code === machine.machine_code))
-    : manageOperation?.machine_groups.length
-      ? catalogs.machines.filter((machine) => manageOperation.machine_groups.some((group) => group.trim().toLocaleUpperCase() === machine.operational_group.trim().toLocaleUpperCase()))
-    : catalogs.machines
+  const manageMachines = manageOperation?.task_type === 'Manual'
+    ? []
+    : manageOperation && catalogs.operationMachines.some((row) => row.operation_code === manageOperation.operation_code)
+      ? catalogs.machines.filter((machine) => catalogs.operationMachines.some((row) => row.operation_code === manageOperation.operation_code && row.machine_code === machine.machine_code))
+      : manageOperation?.machine_groups.length
+        ? catalogs.machines.filter((machine) => manageOperation.machine_groups.some((group) => group.trim().toLocaleUpperCase() === machine.operational_group.trim().toLocaleUpperCase()))
+        : catalogs.machines
   const matchingManagePeople = catalogs.personnel.filter((person) => `${person.full_name} ${person.employee_code}`.toLocaleLowerCase().includes(frontPeopleSearch.trim().toLocaleLowerCase()))
   const manageableFronts = catalogs.fronts.filter((front) => appRole === 'administrador' || front.created_by === session?.user.id)
   const manageFront = manageableFronts.find((front) => front.id === manageFrontId)
@@ -710,9 +755,9 @@ export default function App() {
         <div className="section-heading"><span><Users size={16} /></span><div><h2>Administración de frentes</h2><p>Creá frentes y asigná personal con su maquinaria habitual.</p></div></div>
         <form className="new-front-form" onSubmit={createFront}><label>Nuevo frente<input required maxLength={120} value={newFrontName} onChange={(event) => setNewFrontName(event.target.value)} placeholder="Nombre del frente" /></label><button className="primary-button" disabled={loading}><Plus size={15} /> Crear frente</button></form>
         {manageableFronts.length > 0 ? <label className="front-picker">Frente a administrar<select value={manageFrontId} onChange={(event) => setManageFrontId(event.target.value)}><option value="">Seleccionar frente</option>{manageableFronts.map((front) => <option key={front.id} value={front.id}>{front.name}</option>)}</select></label> : <p className="helper-text">Todavía no tenés frentes propios. Los frentes compartidos aparecen en Cargar parte.</p>}
-        {manageFront && <form className="front-editor" onSubmit={saveFront}><div className="front-editor-heading"><div><h3>{manageFront.name}</h3><p>Los cambios se aplican al guardar.</p></div><button className="secondary-button danger-button" type="button" disabled={loading} onClick={deactivateFront}>Desactivar</button></div><label>Nombre del frente<input required maxLength={120} value={manageFrontName} onChange={(event) => setManageFrontName(event.target.value)} /></label><label className="front-picker">Tarea del frente<select required value={manageOperationCode} onChange={(event) => { setManageOperationCode(event.target.value); setFrontPeopleSearch('') }}><option value="">Seleccionar tarea</option>{catalogs.operations.map((operation) => <option key={operation.operation_code} value={operation.operation_code}>{operation.operation_code} · {operation.name}</option>)}</select></label><h3>Equipo para esta tarea <small>{selectedManageMembers.length} integrantes</small></h3>
+        {manageFront && <form className="front-editor" onSubmit={saveFront}><div className="front-editor-heading"><div><h3>{manageFront.name}</h3><p>Los cambios se aplican al guardar.</p></div><button className="secondary-button danger-button" type="button" disabled={loading} onClick={deactivateFront}>Desactivar</button></div><label>Nombre del frente<input required maxLength={120} value={manageFrontName} onChange={(event) => setManageFrontName(event.target.value)} /></label><label className="front-picker">Tarea del frente<select required value={manageOperationCode} onChange={(event) => { setManageOperationCode(event.target.value); setFrontPeopleSearch('') }}><option value="">Seleccionar tarea</option>{catalogs.operations.map((operation) => <option key={operation.operation_code} value={operation.operation_code}>{operation.operation_code} · {operation.name}</option>)}</select></label><h3>Equipo para esta tarea <small>{selectedManageMembers.length} {selectedManageMembers.length === 1 ? 'integrante' : 'integrantes'} · {manageMachines.length} máquinas compatibles</small></h3>
           <label className="front-search">Buscar personal<input type="search" value={frontPeopleSearch} onChange={(event) => setFrontPeopleSearch(event.target.value)} placeholder="Nombre o legajo" /></label>
-          <div className="front-person-list">{matchingManagePeople.map((person) => { const assignedMember = selectedManageMembers.find((member) => member.personnel_code === person.employee_code); const assigned = Boolean(assignedMember); return <div className="front-person-row" key={person.employee_code}><label className="person-option"><input type="checkbox" checked={assigned} onChange={(event) => setFrontTaskMembers((current) => { const remaining = current.filter((member) => !(member.operation_code === manageOperationCode && member.personnel_code === person.employee_code)); return event.target.checked ? [...remaining, { operation_code: manageOperationCode, personnel_code: person.employee_code, machine_code: null }] : remaining })} /><span>{person.full_name}<small>Legajo {person.employee_code}</small></span></label>{assigned && <select aria-label={`Maquinaria habitual de ${person.full_name}`} disabled={manageOperation?.task_type === 'Manual'} value={assignedMember?.machine_code ?? ''} onChange={(event) => setFrontTaskMembers((current) => current.map((member) => member.operation_code === manageOperationCode && member.personnel_code === person.employee_code ? { ...member, machine_code: event.target.value || null } : member))}><option value="">Sin maquinaria</option>{manageMachines.map((machine) => <option key={machine.machine_code} value={machine.machine_code}>{machine.machine_code} · {[machine.brand, machine.model].filter(Boolean).join(' ')}</option>)}</select>}</div> })}</div>
+          <div className="front-person-list">{matchingManagePeople.map((person) => { const assignedMember = selectedManageMembers.find((member) => member.personnel_code === person.employee_code); const assigned = Boolean(assignedMember); return <div className="front-person-row" key={person.employee_code}><label className="person-option"><input type="checkbox" checked={assigned} onChange={(event) => setFrontTaskMembers((current) => { const remaining = current.filter((member) => !(member.operation_code === manageOperationCode && member.personnel_code === person.employee_code)); return event.target.checked ? [...remaining, { operation_code: manageOperationCode, personnel_code: person.employee_code, machine_code: null }] : remaining })} /><span>{person.full_name}<small>Legajo {person.employee_code}</small></span></label>{assigned && <MachinePicker label={`Maquinaria habitual de ${person.full_name}`} disabled={manageOperation?.task_type === 'Manual'} machines={manageMachines} value={assignedMember?.machine_code ?? ''} onChange={(machineCode) => setFrontTaskMembers((current) => current.map((member) => member.operation_code === manageOperationCode && member.personnel_code === person.employee_code ? { ...member, machine_code: machineCode || null } : member))} />}</div> })}</div>
           <div className="form-actions"><span>El equipo queda disponible al cargar un parte con este frente.</span><button className="primary-button" disabled={loading || !manageFrontName.trim()}><Save size={15} /> Guardar frente</button></div></form>}
       </section>}
       {section === 'report' && hasMasterCatalogs && !hasFronts && !loading && <section className="empty-state"><h2>Los maestros están listos; falta un frente</h2><p>No hay frentes activos disponibles. Creá uno y asignale personal para empezar a cargar partes.</p><button className="secondary-button" onClick={() => setSection('fronts')}>Administrar frentes</button></section>}
