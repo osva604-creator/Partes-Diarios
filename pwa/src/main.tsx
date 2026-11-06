@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register'
 import App from './App'
 import './styles.css'
 import './styles-responsive.css'
+import './styles-theme.css'
 
 registerSW({ immediate: true })
 
