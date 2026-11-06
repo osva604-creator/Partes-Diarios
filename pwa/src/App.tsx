@@ -13,6 +13,7 @@ type Person = { employee_code: string; full_name: string }
 type Machine = { machine_code: string; operational_group: string; brand: string; model: string }
 type Front = { id: string; name: string; created_by: string; active: boolean }
 type FrontTaskMember = { operation_code: string; personnel_code: string; machine_code: string | null }
+type FrontTaskMemberRow = FrontTaskMember & { front_id: string }
 type AllocationDraft = { attendance: string; quantity: string; replacement_code: string; person_hours: string; machine_start_time: string; machine_end_time: string }
 type Catalogs = { farms: Farm[]; lots: Lot[]; operations: Operation[]; personnel: Person[]; machines: Machine[]; fronts: Front[]; costCenters: CostCenter[]; groups: OperationGroup[]; inputs: InputCatalogItem[]; centerGroups: { cost_center_id: string; group_code: string }[]; groupOperations: { group_code: string; operation_code: string }[]; operationInputs: { operation_code: string; input_code: string }[] }
 type Notice = { kind: 'error' | 'success'; text: string }
@@ -83,13 +84,6 @@ function machinesForOperation(operation: Operation | undefined, machines: Machin
   return machines.filter((machine) => allowedGroups.has(normalizedMachineGroup(machine.operational_group)))
 }
 
-function isMachineCompatible(operation: Operation, machine: Machine) {
-  if (operation.task_type === 'Manual') return false
-  if (operation.machine_groups.length === 0) return true
-  const allowedGroups = new Set(operation.machine_groups.map(normalizedMachineGroup))
-  return allowedGroups.has(normalizedMachineGroup(machine.operational_group))
-}
-
 function MachinePicker({
   machines,
   value,
@@ -138,6 +132,7 @@ export default function App() {
   const [sessionReady, setSessionReady] = useState(false)
   const [catalogs, setCatalogs] = useState<Catalogs>(emptyCatalogs)
   const [members, setMembers] = useState<FrontTaskMember[]>([])
+  const [frontTaskCatalog, setFrontTaskCatalog] = useState<FrontTaskMemberRow[]>([])
   const [memberMachines, setMemberMachines] = useState<Record<string, string>>({})
   const [allocationDrafts, setAllocationDrafts] = useState<Record<string, AllocationDraft>>({})
   const [frontTaskMembers, setFrontTaskMembers] = useState<FrontTaskMember[]>([])
@@ -146,7 +141,6 @@ export default function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [reportDate, setReportDate] = useState(today)
-  const [serviceOrder, setServiceOrder] = useState('')
   const [farmId, setFarmId] = useState('')
   const [lotId, setLotId] = useState('')
   const [operationCode, setOperationCode] = useState('')
@@ -161,7 +155,6 @@ export default function App() {
   const [groupCode, setGroupCode] = useState('')
   const [inputLines, setInputLines] = useState<{ input_code: string; dose: string; quantity: string; unit: string }[]>([])
   const [draftTasks, setDraftTasks] = useState<Record<string, unknown>[]>([])
-  const [exchangePreview, setExchangePreview] = useState<{ report_date: string; service_order: string; tasks: Record<string, unknown>[]; labels: string[] } | null>(null)
   const [draftIdempotencyKey, setDraftIdempotencyKey] = useState('')
   const [draftFingerprint, setDraftFingerprint] = useState('')
   const [section, setSection] = useState<'reports' | 'fronts' | 'quick' | 'sent'>('reports')
@@ -193,7 +186,15 @@ export default function App() {
   const [newFrontName, setNewFrontName] = useState('')
   const [manageOperationCode, setManageOperationCode] = useState('')
   const [frontPeopleSearch, setFrontPeopleSearch] = useState('')
-  const [openCycle, setOpenCycle] = useState<{ target_quantity: number; target_available: boolean; unit: string } | null>(null)
+  const [openCycle, setOpenCycle] = useState<{ id: string; target_quantity: number; target_available: boolean; unit: string; cycle_no: number } | null>(null)
+  const [cycleAccumulated, setCycleAccumulated] = useState(0)
+  const [staffMode, setStaffMode] = useState<'fronts' | 'manual'>('fronts')
+  const [includedFrontTasks, setIncludedFrontTasks] = useState<string[]>([])
+  const [manualPeopleCodes, setManualPeopleCodes] = useState<string[]>([])
+  const [frontTaskPickerOpen, setFrontTaskPickerOpen] = useState(false)
+  const [selectedDraftKeys, setSelectedDraftKeys] = useState<string[]>([])
+  const [manualFrontId, setManualFrontId] = useState('')
+  const [inputSearch, setInputSearch] = useState('')
 
   useEffect(() => {
     if (!supabase) { setSessionReady(true); return }
@@ -212,6 +213,20 @@ export default function App() {
       if (saved.whatsappNumber !== undefined) setSentTo(String(saved.whatsappNumber))
     } catch { /* Ignore malformed local preferences and keep defaults. */ }
   }, [session?.user.id])
+
+  useEffect(() => {
+    if (!supabase || !frontId || staffMode !== 'fronts') { setFrontTaskCatalog([]); return }
+    let cancelled = false
+    supabase.from('front_task_members').select('front_id,operation_code,personnel_code,machine_code').eq('front_id', frontId)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { setNotice({ kind: 'error', text: `No se pudieron cargar las tareas del frente: ${error.message}` }); setFrontTaskCatalog([]); return }
+        const rows = (data ?? []) as FrontTaskMemberRow[]
+        setFrontTaskCatalog(rows)
+        setIncludedFrontTasks([...new Set(rows.map((row) => row.operation_code))])
+      })
+    return () => { cancelled = true }
+  }, [frontId, staffMode])
 
   const loadCatalogs = useCallback(async () => {
     if (!supabase || !session) return
@@ -287,11 +302,23 @@ export default function App() {
   const effectiveCostCenter = chosenCostCenter || selectedLot?.suggested_cost_center_id || ''
   const permittedGroups = effectiveCostCenter ? catalogs.centerGroups.filter((row) => row.cost_center_id === effectiveCostCenter).map((row) => row.group_code) : []
   const visibleOperationGroups = catalogs.groups.filter((group) => permittedGroups.includes(group.group_code))
-  const allowedOperations = catalogs.operations.filter((operation) => {
+  const centerAllowedOperations = catalogs.operations.filter((operation) => {
     if (!effectiveCostCenter || catalogs.groups.length === 0) return true
     const groupsForOperation = catalogs.groupOperations.filter((row) => row.operation_code === operation.operation_code).map((row) => row.group_code)
-    return Boolean(groupCode) && groupsForOperation.includes(groupCode) && permittedGroups.includes(groupCode)
+    return groupsForOperation.length === 0 || groupsForOperation.some((group) => permittedGroups.includes(group))
   })
+  const allowedOperations = centerAllowedOperations.filter((operation) => {
+    if (!effectiveCostCenter || catalogs.groups.length === 0 || !groupCode) return !groupCode
+    const groupsForOperation = catalogs.groupOperations.filter((row) => row.operation_code === operation.operation_code).map((row) => row.group_code)
+    return groupsForOperation.includes(groupCode) && permittedGroups.includes(groupCode)
+  })
+  const configuredFrontTaskCodes = [...new Set(frontTaskCatalog.map((member) => member.operation_code))]
+  const availableFrontTaskCodes = configuredFrontTaskCodes.filter((code) => centerAllowedOperations.some((operation) => operation.operation_code === code))
+  const selectedFrontTaskCodes = availableFrontTaskCodes.filter((code) => includedFrontTasks.includes(code))
+  const stagedFrontTaskCodes = draftTasks.filter((task) => task.front_id === frontId).map((task) => String(task.operation_code))
+  const completedFrontTaskCodes = selectedFrontTaskCodes.filter((code) => stagedFrontTaskCodes.includes(code))
+  const pendingFrontTaskCodes = selectedFrontTaskCodes.filter((code) => !stagedFrontTaskCodes.includes(code))
+  const nextFrontTaskCode = pendingFrontTaskCodes[0] ?? ''
   const currentUnit = openCycle?.unit ?? selectedOperation?.unit ?? ''
   const usesSharedTotal = ['SC', 'HA', 'TN'].includes(currentUnit.trim().toUpperCase())
   const allocationMode = usesSharedTotal ? 'Total a repartir' : 'Cantidad individual'
@@ -307,12 +334,28 @@ export default function App() {
     const details = selectedPeople.map((personCode) => allocationDrafts[personCode] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: defaultPersonHours, machine_start_time: '', machine_end_time: '' })
     return distributeTaskQuantity(Number(quantity), selectedPeople, details, currentUnit.trim().toUpperCase() === 'SC')
   }, [usesSharedTotal, quantity, selectedPeople, allocationDrafts, currentUnit])
-  const eligiblePeople = catalogs.personnel.filter((person) => members.some((member) => member.personnel_code === person.employee_code))
+  const eligiblePeople = catalogs.personnel.filter((person) => staffMode === 'manual' ? manualPeopleCodes.includes(person.employee_code) : members.some((member) => member.personnel_code === person.employee_code) || selectedPeople.includes(person.employee_code))
+  useEffect(() => {
+    if (staffMode !== 'fronts') return
+    setOperationCode(nextFrontTaskCode)
+    setGroupCode('')
+    setQuantity('')
+    setNotes('')
+    setInputLines([])
+  }, [staffMode, frontId, nextFrontTaskCode])
   const selectedManageMembers = frontTaskMembers.filter((member) => member.operation_code === manageOperationCode)
   const manageOperation = catalogs.operations.find((operation) => operation.operation_code === manageOperationCode)
   const manageMachines = machinesForOperation(manageOperation, catalogs.machines)
   const matchingManagePeople = catalogs.personnel.filter((person) => `${person.full_name} ${person.employee_code}`.toLocaleLowerCase().includes(frontPeopleSearch.trim().toLocaleLowerCase()))
-  const manageableFronts = catalogs.fronts.filter((front) => appRole === 'administrador' || front.created_by === session?.user.id)
+  const frequentInputCodes = useMemo(() => {
+    const uses = new Map<string, number>()
+    for (const report of reports) for (const task of report.report_tasks ?? []) for (const input of task.part_inputs ?? []) uses.set(input.input_code, (uses.get(input.input_code) ?? 0) + 1)
+    const ranked = [...uses.entries()].filter(([code]) => catalogs.inputs.some((item) => item.input_code === code)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([code]) => code)
+    const fallback = [...catalogs.inputs].sort((a, b) => a.description.localeCompare(b.description)).map((item) => item.input_code)
+    return [...ranked, ...fallback.filter((code) => !ranked.includes(code))].slice(0, 4)
+  }, [reports, catalogs.inputs])
+  const visibleFronts = catalogs.fronts.filter((front) => front.id !== manualFrontId && front.name !== 'Carga manual')
+  const manageableFronts = visibleFronts.filter((front) => appRole === 'administrador' || front.created_by === session?.user.id)
   const manageFront = manageableFronts.find((front) => front.id === manageFrontId)
   const eligibleMachines = machinesForOperation(selectedOperation, catalogs.machines)
   const filteredReports = useMemo(() => reports.filter((report) => {
@@ -347,6 +390,30 @@ export default function App() {
     } catch {
       setNotice({ kind: 'error', text: 'No se pudo guardar la configuración en este dispositivo.' })
     }
+  }
+
+  async function ensureManualFront() {
+    if (!supabase || !session) throw new Error('Iniciá sesión para continuar.')
+    if (manualFrontId) return manualFrontId
+    const existing = catalogs.fronts.find((front) => front.name === 'Carga manual')
+    if (existing) { setManualFrontId(existing.id); setFrontId(existing.id); return existing.id }
+    const { data, error } = await supabase.from('fronts').insert({ name: 'Carga manual', created_by: session.user.id }).select('id,name,created_by,active').single()
+    if (error) throw new Error(`No se pudo preparar la carga manual: ${error.message}`)
+    setManualFrontId(data.id)
+    setFrontId(data.id)
+    setCatalogs((current) => ({ ...current, fronts: [...current.fronts, data as Front] }))
+    return data.id as string
+  }
+
+  async function continueToStaffStep() {
+    setNotice(null)
+    if (!selectedOperation || !selectedLot || !quantity.trim() || !Number.isFinite(Number(quantity)) || Number(quantity) <= 0) return
+    if (staffMode === 'manual') {
+      try { await ensureManualFront() }
+      catch (error) { setNotice({ kind: 'error', text: errorText(error) }); return }
+    }
+    setAllocationDrafts((current) => Object.fromEntries(selectedPeople.map((code) => [code, { ...(current[code] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: defaultPersonHours, machine_start_time: '', machine_end_time: '' }), quantity: current[code]?.quantity || quantity } ])))
+    setNewPartStep(3)
   }
 
   function prepareManualEntry(event: FormEvent) {
@@ -398,6 +465,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (staffMode === 'manual') { setMembers([]); setSelectedPeople(manualPeopleCodes); setMemberMachines({}); setAllocationDrafts({}); return }
     if (!supabase || !frontId || !operationCode) { setMembers([]); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); return }
     let cancelled = false
     supabase.from('front_task_members').select('operation_code,personnel_code,machine_code').eq('front_id', frontId).eq('operation_code', operationCode).then(({ data, error }) => {
@@ -410,22 +478,29 @@ export default function App() {
       setAllocationDrafts(Object.fromEntries(rows.map((member) => [member.personnel_code, { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: defaultPersonHours, machine_start_time: '', machine_end_time: '' }])))
     })
     return () => { cancelled = true }
-  }, [frontId, operationCode, defaultPersonHours])
+  }, [frontId, operationCode, defaultPersonHours, staffMode, manualPeopleCodes])
 
   useEffect(() => {
-    if (!supabase || !lotId || !operationCode) { setOpenCycle(null); setTargetQuantity(''); return }
+    if (!supabase || !lotId || !operationCode) { setOpenCycle(null); setCycleAccumulated(0); setTargetQuantity(''); return }
+    const client = supabase
     let cancelled = false
     const lot = catalogs.lots.find((item) => item.id === lotId)
     const operation = catalogs.operations.find((item) => item.operation_code === operationCode)
-    supabase.from('work_cycles').select('target_quantity,target_available,unit,cycle_no').eq('lot_id', lotId).eq('operation_code', operationCode).eq('status', 'Abierto').order('cycle_no', { ascending: false }).limit(1).maybeSingle()
+    client.from('work_cycles').select('id,target_quantity,target_available,unit,cycle_no').eq('lot_id', lotId).eq('operation_code', operationCode).eq('status', 'Abierto').order('cycle_no', { ascending: false }).limit(1).maybeSingle()
       .then(({ data, error }) => {
         if (cancelled) return
         if (error) { setNotice({ kind: 'error', text: `No se pudo consultar el avance existente: ${error.message}` }); return }
         if (data) {
           setOpenCycle(data)
           setTargetQuantity(data.target_available ? String(data.target_quantity) : '')
+          client.from('report_tasks').select('quantity').eq('work_cycle_id', data.id).then(({ data: rows, error: totalsError }) => {
+            if (cancelled) return
+            if (totalsError) { setNotice({ kind: 'error', text: `No se pudo calcular el avance acumulado: ${totalsError.message}` }); return }
+            setCycleAccumulated((rows ?? []).reduce((total, row) => total + Number(row.quantity), 0))
+          })
         } else {
           setOpenCycle(null)
+          setCycleAccumulated(0)
           const unit = operation?.unit.trim().toLocaleUpperCase() ?? ''
           const inventoryTarget = unit === 'SC' ? lot?.furrows : unit === 'HA' ? (lot?.net_area ?? lot?.gross_area) : null
           setTargetQuantity(inventoryTarget ? String(inventoryTarget) : '')
@@ -627,21 +702,29 @@ export default function App() {
       },
     }
     setDraftTasks((current) => [...current, payload])
-    setNewPartStep(4)
-    setQuantity(''); setNotes(''); setInputLines([]); setNotice({ kind: 'success', text: `Tarea agregada al borrador (${draftTasks.length + 1}).` })
+    const nextQueuedTask = staffMode === 'fronts' ? pendingFrontTaskCodes.find((code) => code !== operationCode) : undefined
+    if (nextQueuedTask) {
+      setOperationCode(nextQueuedTask)
+      setNewPartStep(2)
+      setNotice({ kind: 'success', text: `Tarea ${operationCode} agregada. El sistema continúa con la siguiente tarea del frente.` })
+    } else {
+      setNewPartStep(4)
+      setNotice({ kind: 'success', text: `Tarea agregada al borrador (${draftTasks.length + 1}). Revisá el parte completo antes de guardarlo.` })
+    }
+    setQuantity(''); setNotes(''); setInputLines([])
     return
   }
 
   async function submitDraft() {
     if (!supabase || draftTasks.length === 0) return
     setLoading(true); setNotice(null); setSavedReport(null)
-    const fingerprint = JSON.stringify({ reportDate, serviceOrder: serviceOrder.trim(), tasks: draftTasks })
+    const fingerprint = JSON.stringify({ reportDate, tasks: draftTasks })
     const idempotencyKey = draftIdempotencyKey && draftFingerprint === fingerprint ? draftIdempotencyKey : crypto.randomUUID()
     setDraftIdempotencyKey(idempotencyKey); setDraftFingerprint(fingerprint)
     const { data, error } = await supabase.rpc('create_daily_report', {
       p_idempotency_key: idempotencyKey,
       p_report_date: reportDate,
-      p_service_order: serviceOrder.trim(),
+      p_service_order: '',
       p_tasks: draftTasks,
     })
     if (error) setNotice({ kind: 'error', text: `No se pudo guardar el parte: ${error.message}` })
@@ -656,89 +739,11 @@ export default function App() {
 
   function discardDraft() {
     if (!draftTasks.length || window.confirm('¿Descartar todas las tareas de este borrador?')) {
-      setDraftTasks([]); setDraftIdempotencyKey(''); setDraftFingerprint(''); setNotice({ kind: 'success', text: 'Borrador descartado.' })
+      setDraftTasks([]); setSelectedDraftKeys([]); setDraftIdempotencyKey(''); setDraftFingerprint('')
+      setFrontId(''); setOperationCode(''); setGroupCode(''); setManualPeopleCodes([])
+      setStaffMode('fronts'); setNewPartStep(1)
+      setNotice({ kind: 'success', text: 'Borrador descartado.' })
     }
-  }
-
-  async function previewExchangeFile(file?: File) {
-    if (!file) return
-    setExchangePreview(null)
-    try {
-      if (draftTasks.length) throw new Error('Guardá o descartá el borrador actual antes de importar un JSON.')
-      if (file.size > 5 * 1024 * 1024) throw new Error('El JSON supera el límite de 5 MB.')
-      const source = JSON.parse(await file.text())
-      if (source.schema !== 'asistente-parte-diario' || source.schema_version !== 1 || !Array.isArray(source.tasks) || source.tasks.length < 1 || source.tasks.length > 1000) throw new Error('El archivo no coincide con el esquema asistente-parte-diario v1 o no tiene tareas válidas.')
-      if (!catalogs.lots.length || !catalogs.operations.length || !catalogs.personnel.length) throw new Error('Esperá a que carguen los catálogos antes de importar.')
-      const labels: string[] = []
-      const tasks = source.tasks.map((entry: ReportRow, index: number) => {
-        const part = entry?.part
-        const lot = catalogs.lots.find((item) => item.id === part?.lot_key && item.selectable)
-        const operation = catalogs.operations.find((item) => item.operation_code === part?.operation_key)
-        if (!lot || !operation) throw new Error(`La tarea ${index + 1}: lote u operación inexistente/inactiva para una nueva carga.`)
-        if (!Array.isArray(entry.allocations) || entry.allocations.length === 0 || !Array.isArray(entry.inputs ?? [])) throw new Error(`La tarea ${index + 1}: faltan personas o la lista de insumos no es válida.`)
-        const allocations = entry.allocations.map((row: ReportRow) => {
-          const person = catalogs.personnel.find((item) => item.employee_code === row.personnel_key)
-          const machine = row.machine_key ? catalogs.machines.find((item) => item.machine_code === row.machine_key) : null
-          if (!person || (row.machine_key && !machine)) throw new Error(`La tarea ${index + 1}: hay una persona o máquina que no está activa.`)
-          if (machine && operation.task_type === 'Manual') throw new Error(`La tarea ${index + 1}: una tarea manual no puede tener máquina.`)
-          const compatible = machine ? isMachineCompatible(operation, machine) : !row.machine_key
-          if (machine && !compatible) throw new Error(`La tarea ${index + 1}: la máquina no es compatible con la operación.`)
-          const amount = Number(row.quantity ?? 0)
-          const attendance = row.attendance ?? 'Presente'
-          const personHours = Number(row.person_hours ?? 12)
-          const replacement = row.replacement_key ? catalogs.personnel.find((item) => item.employee_code === row.replacement_key) : null
-          const start = row.machine_start_time == null ? null : Number(row.machine_start_time)
-          const end = row.machine_end_time == null ? null : Number(row.machine_end_time)
-          if (!Number.isFinite(amount) || amount < 0 || !['Presente', 'Ausente', 'Cantidad fija'].includes(attendance) || (attendance === 'Ausente' && amount !== 0)) throw new Error(`La tarea ${index + 1}: una cantidad o asistencia no es válida.`)
-          if (!Number.isFinite(personHours) || personHours < 0 || personHours > 48 || (row.replacement_key && !replacement)) throw new Error(`La tarea ${index + 1}: las horas o el reemplazo no son válidos.`)
-          if ((start != null && (!Number.isInteger(start) || start < 0)) || (end != null && (!Number.isInteger(end) || end < 0)) || ((start == null) !== (end == null)) || (start != null && end != null && end < start)) throw new Error(`La tarea ${index + 1}: las lecturas de máquina no son válidas.`)
-          return { personnel_code: person.employee_code, machine_code: row.machine_key ?? '', attendance, quantity: amount, replacement_code: row.replacement_key ?? '', front_id: frontId, person_hours: personHours, machine_start_time: start, machine_end_time: end }
-        })
-        if (new Set(allocations.map((row: ReportRow) => row.personnel_code)).size !== allocations.length) throw new Error(`La tarea ${index + 1}: hay personas repetidas.`)
-        if (operation.machine_groups.length && !allocations.some((row: ReportRow) => row.machine_code && row.attendance !== 'Ausente')) throw new Error(`La tarea ${index + 1}: la operación requiere una máquina.`)
-        const inputs = (entry.inputs ?? []).map((row: ReportRow) => {
-          const input = catalogs.inputs.find((item) => item.input_code === row.input_key)
-          if (!input || !operation.allows_inputs) throw new Error(`La tarea ${index + 1}: contiene un insumo no disponible para esa operación.`)
-          const dose = Number(row.dose ?? 0); const amount = Number(row.quantity ?? 0)
-          if (!Number.isFinite(dose) || dose < 0 || !Number.isFinite(amount) || amount < 0) throw new Error(`La tarea ${index + 1}: la dosis o el consumo del insumo no son válidos.`)
-          return { input_code: input.input_code, dose, quantity: amount, unit: row.unit ?? input.unit }
-        })
-        const quantity = Number(part.quantity)
-        const total = allocations.reduce((sum: number, row: ReportRow) => sum + row.quantity, 0)
-        if (!Number.isFinite(quantity) || quantity <= 0 || Math.abs(total - quantity) > 0.001) throw new Error(`La tarea ${index + 1}: la cantidad no coincide con la suma asignada.`)
-        const unit = String(part.unit || operation.unit)
-        if (unit.toUpperCase() === 'SC' && (!Number.isInteger(quantity) || allocations.some((row: ReportRow) => !Number.isInteger(row.quantity)))) throw new Error(`La tarea ${index + 1}: las cantidades en surcos deben ser enteras.`)
-        labels.push(`${lot.lot_code} · ${operation.name} · ${quantity} ${unit}`)
-        const target = part.target_quantity == null ? 0 : Number(part.target_quantity)
-        const allocationMode = part.allocation_mode || (['SC', 'HA', 'TN'].includes(unit.toUpperCase()) ? 'Total a repartir' : 'Cantidad individual')
-        if (!Number.isFinite(target) || target < 0 || !['Total a repartir', 'Cantidad individual'].includes(allocationMode)) throw new Error(`La tarea ${index + 1}: el objetivo o modo de distribución no es válido.`)
-        return {
-          lot_id: lot.id, operation_code: operation.operation_code, front_id: frontId, quantity,
-          target_quantity: target, target_available: part.target_quantity != null,
-          unit, allocation_mode: allocationMode,
-          crop: part.crop ?? lot.crop, notes: part.notes ?? '', allocations, inputs,
-          cost_center_context: part.cost_center_context ?? {},
-        }
-      })
-      const unique = new Set<string>()
-      for (const task of tasks) {
-        const key = `${task.lot_id}:${task.operation_code}`
-        if (unique.has(key)) throw new Error('El archivo repite una combinación de lote y operación.')
-        unique.add(key)
-      }
-      const reportDate = String(source.report?.report_date ?? today())
-      const parsedDate = new Date(`${reportDate}T00:00:00`)
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== reportDate) throw new Error('La fecha del archivo no es válida.')
-      setExchangePreview({ report_date: reportDate, service_order: String(source.report?.service_order ?? ''), tasks, labels })
-    } catch (error) { setNotice({ kind: 'error', text: `No se pudo preparar la importación: ${errorText(error)}` }) }
-  }
-
-  function acceptExchangePreview() {
-    if (!exchangePreview || !frontId) { setNotice({ kind: 'error', text: 'Elegí primero un frente para asociarlo a las tareas importadas.' }); return }
-    const tasks = exchangePreview.tasks.map((task) => ({ ...task, front_id: frontId, allocations: (task.allocations as ReportRow[]).map((row) => ({ ...row, front_id: frontId })) }))
-    setReportDate(exchangePreview.report_date); setServiceOrder(exchangePreview.service_order); setDraftTasks(tasks)
-    setDraftIdempotencyKey(''); setDraftFingerprint(''); setExchangePreview(null)
-    setNotice({ kind: 'success', text: 'Vista previa aceptada: el contenido quedó en el borrador local. Todavía falta guardar el parte.' })
   }
 
   function buildReportExchange(report: ReportRow) {
@@ -890,7 +895,6 @@ export default function App() {
     {notice && <p className={`notice ${notice.kind}`} role="status">{notice.text}</p>}<p className="muted">Las cuentas se habilitan desde el proyecto Supabase.</p></section></main>
 
   const hasMasterCatalogs = catalogs.farms.length > 0 && catalogs.lots.length > 0 && catalogs.operations.length > 0 && catalogs.personnel.length > 0
-  const hasFronts = catalogs.fronts.length > 0
   return <main className="app-shell">
     <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <button className="sidebar-toggle" type="button" aria-label={sidebarCollapsed ? 'Expandir menú' : 'Contraer menú'} title={sidebarCollapsed ? 'Expandir menú' : 'Contraer menú'} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>{sidebarCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}</button>
@@ -974,26 +978,103 @@ export default function App() {
           <div className="front-person-list">{matchingManagePeople.map((person) => { const assignedMember = selectedManageMembers.find((member) => member.personnel_code === person.employee_code); const assigned = Boolean(assignedMember); return <div className="front-person-row" key={person.employee_code}><label className="person-option"><input type="checkbox" checked={assigned} onChange={(event) => setFrontTaskMembers((current) => { const remaining = current.filter((member) => !(member.operation_code === manageOperationCode && member.personnel_code === person.employee_code)); return event.target.checked ? [...remaining, { operation_code: manageOperationCode, personnel_code: person.employee_code, machine_code: null }] : remaining })} /><span>{person.full_name}<small>Legajo {person.employee_code}</small></span></label>{assigned && <MachinePicker label={`Maquinaria habitual de ${person.full_name}`} disabled={manageOperation?.task_type === 'Manual'} machines={manageMachines} value={assignedMember?.machine_code ?? ''} onChange={(machineCode) => setFrontTaskMembers((current) => current.map((member) => member.operation_code === manageOperationCode && member.personnel_code === person.employee_code ? { ...member, machine_code: machineCode || null } : member))} />}</div> })}</div>
           <div className="form-actions"><span>El equipo queda disponible al cargar un parte con este frente.</span><button className="primary-button" disabled={loading || !manageFrontName.trim()}><Save size={15} /> Guardar frente</button></div></form>}</div>}
       </section>}
-      {section === 'reports' && partsView === 'new' && hasMasterCatalogs && !hasFronts && !loading && <section className="empty-state"><h2>Los maestros están listos; falta un frente</h2><p>No hay frentes activos disponibles. Creá uno y asignale personal para empezar a cargar partes.</p><button className="secondary-button" onClick={() => setSection('fronts')}>Administrar frentes</button></section>}
       {loading && !hasMasterCatalogs && <div className="loading-label"><RefreshCw className="spin" size={18} /> Cargando datos…</div>}
-      {section === 'reports' && partsView === 'new' && hasMasterCatalogs && hasFronts && <form className="report-form" id="cargar" onSubmit={saveReport}>
+      {section === 'reports' && partsView === 'new' && hasMasterCatalogs && <form className="report-form" id="cargar" onSubmit={saveReport}>
         <div className="part-stepper" role="tablist" aria-label="Pasos del nuevo parte">
           {['Finca y lote', 'Tarea', 'Personal y vehículos', 'Revisar y guardar'].map((label, index) => <button type="button" role="tab" aria-selected={newPartStep === index + 1} className={newPartStep === index + 1 ? 'active' : ''} key={label} onClick={() => setNewPartStep(index + 1)}><span>{index + 1}</span>{label}</button>)}
         </div>
-{newPartStep === 4 && <section className="form-section"><div className="section-heading"><span>JSON</span><div><h2>Importar un parte</h2><p>Validá el contenido antes de incorporarlo al borrador local.</p></div></div><label>Archivo JSON<input type="file" accept="application/json,.json" disabled={draftTasks.length > 0} onChange={(event) => { void previewExchangeFile(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} /></label>{draftTasks.length > 0 && <small>Guardá o descartá el borrador actual antes de importar.</small>}{exchangePreview && <div className="draft-review"><h3>Vista previa · {exchangePreview.tasks.length} tareas</h3><label>Frente que se asignará a la importación<select value={frontId} onChange={(event) => setFrontId(event.target.value)}><option value="">Seleccionar frente</option>{catalogs.fronts.map((front) => <option key={front.id} value={front.id}>{front.name}</option>)}</select></label><ul>{exchangePreview.labels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul><p>Fecha {exchangePreview.report_date} · Orden {exchangePreview.service_order || '—'}. La confirmación solo crea un borrador editable en esta pantalla.</p><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setExchangePreview(null)}>Cancelar</button><button type="button" className="primary-button" disabled={!frontId} onClick={acceptExchangePreview}>Aceptar vista previa</button></div></div>}</section>}
-        {newPartStep === 4 && draftTasks.length > 0 && <section className="form-section draft-review"><div className="section-heading"><span>{draftTasks.length}</span><div><h2>Borrador del parte</h2><p>Las tareas comparten la fecha {reportDate}. Revisá el conjunto antes de guardar.</p></div><button className="secondary-button danger-button" type="button" onClick={discardDraft}>Descartar</button></div><ul>{draftTasks.map((task, index) => { const lot = catalogs.lots.find((item) => item.id === task.lot_id); const operation = catalogs.operations.find((item) => item.operation_code === task.operation_code); return <li key={`${task.lot_id}-${task.operation_code}`}><span><b>{index + 1}. {lot?.lot_code}</b> · {operation?.name} · {String(task.quantity)} {String(task.unit)}</span><button type="button" className="text-button" onClick={() => { setDraftTasks((items) => items.filter((_, itemIndex) => itemIndex !== index)); setDraftIdempotencyKey(''); setDraftFingerprint('') }}>Quitar</button></li> })}</ul><button type="button" className="secondary-button" onClick={() => setNewPartStep(1)}>Agregar otra tarea</button><button type="button" className="primary-button" disabled={loading} onClick={() => void submitDraft()}>{loading ? 'Guardando…' : `Guardar parte completo (${draftTasks.length} tarea${draftTasks.length === 1 ? '' : 's'})`}</button></section>}
-        {newPartStep === 4 && draftTasks.length === 0 && <div className="empty-review"><h2>Todavía no hay tareas en el borrador</h2><p>Completá los pasos anteriores para agregar la primera tarea.</p><button type="button" className="secondary-button" onClick={() => setNewPartStep(1)}>Volver a finca y lote</button></div>}
-        {newPartStep === 1 && <section className="form-section"><div className="section-heading"><span>01</span><div><h2>Datos del parte</h2><p>Fecha y número de orden, si corresponde.</p></div></div><div className="field-grid two"><label>Fecha<input type="date" required value={reportDate} disabled={draftTasks.length > 0} onChange={(e) => setReportDate(e.target.value)} /></label><label>Orden de servicio <small>Opcional</small><input value={serviceOrder} onChange={(e) => setServiceOrder(e.target.value)} placeholder="Número de orden" /></label></div></section>}
-        {newPartStep === 1 && <section className="form-section"><div className="section-heading"><span>01</span><div><h2>Datos del parte y ubicación</h2><p>Indicá dónde se realizó el trabajo. Estos datos se conservan al avanzar.</p></div></div><div className="field-grid two"><label>Finca<select required value={farmId} onChange={(e) => { setFarmId(e.target.value); setLotId('') }}><option value="">Seleccionar finca</option>{catalogs.farms.map((farm) => <option key={farm.id} value={farm.id}>{farm.name}</option>)}</select></label><label>Lote<select required value={lotId} onChange={(e) => { setLotId(e.target.value); setChosenCostCenter('') }} disabled={!farmId}><option value="">Seleccionar lote</option>{visibleLots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lot_code} · {lot.lot_name || lot.crop}</option>)}</select></label></div></section>}
-{newPartStep === 2 && <section className="form-section"><div className="section-heading"><span>02</span><div><h2>Datos de la tarea</h2><p>Elegí la tarea realizada y su cantidad.</p></div></div><div className="field-grid two">          {selectedLot && <><label>Centro de costo<select required={catalogs.costCenters.length > 0} value={effectiveCostCenter} onChange={(e) => { setChosenCostCenter(e.target.value); setGroupCode('') }}><option value="">Elegir centro de costo</option>{catalogs.costCenters.map((center) => <option key={center.cost_center_id} value={center.cost_center_id}>{center.cost_center_id} · {center.name}</option>)}</select>{catalogs.costCenters.length === 0 && <small>El catálogo V1.1 aún no está sincronizado; esta tarea guardará el contexto de centro vacío.</small>}<small>Centro sugerido por ubicación: {selectedLot.suggested_cost_center_id ? `${selectedLot.suggested_cost_center_id} · ${selectedLot.suggested_cost_center_name}` : 'Sin correspondencia; elegí uno manualmente.'}</small>{selectedLot.suggested_cost_center_id && effectiveCostCenter !== selectedLot.suggested_cost_center_id && <small className="helper-text">Aviso: el centro seleccionado difiere del sugerido. La elección quedará registrada en esta tarea.</small>}</label>{effectiveCostCenter && visibleOperationGroups.length > 0 && <label>Grupo de operación<select required value={groupCode} onChange={(e) => setGroupCode(e.target.value)}><option value="">Seleccionar grupo</option>{visibleOperationGroups.map((group) => <option key={group.group_code} value={group.group_code}>{group.group_code} · {group.name}</option>)}</select></label>}<div className="allocation-hint"><span>Datos agronómicos</span><strong>{selectedLot.agronomic_data_available ? 'Disponibles' : 'Incompletos'}</strong><small>{selectedLot.agronomic_data_available ? `Superficie neta: ${selectedLot.net_area ?? 'sin dato'} ha · Surcos: ${selectedLot.furrows ?? 'sin dato'}` : 'Se puede continuar; no se generan objetivos derivados.'}</small></div></>}
-          <label>Tarea<select required value={operationCode} onChange={(e) => { setOperationCode(e.target.value); setQuantity(''); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); setInputLines([]) }}><option value="">Seleccionar tarea</option>{allowedOperations.map((operation) => <option key={operation.operation_code} value={operation.operation_code}>{operation.operation_code} · {operation.name}</option>)}</select>{effectiveCostCenter && catalogs.groups.length > 0 && <small>Filtrada por grupos habilitados para el centro.</small>}</label>{usesSharedTotal && <label>{currentUnit.trim().toUpperCase() === 'SC' ? 'Surcos realizados' : 'Cantidad total realizada'} <small>{currentUnit}</small><input type="number" inputMode="decimal" min={currentUnit.trim().toUpperCase() === 'SC' ? '1' : '0.001'} step={currentUnit.trim().toUpperCase() === 'SC' ? '1' : '0.001'} required value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" /></label>}{usesSharedTotal && <label>Objetivo del lote <small>{openCycle ? 'Del ciclo abierto' : 'Sugerido por datos agronómicos'}</small><input type="number" min="0" step={currentUnit.trim().toUpperCase() === 'SC' ? '1' : '0.001'} value={targetQuantity} onChange={(event) => setTargetQuantity(event.target.value)} readOnly={Boolean(openCycle)} placeholder="Sin dato" /></label>}<div className="allocation-hint"><span>Reparto automático · {currentUnit || 'unidad de tarea'}</span><strong>{usesSharedTotal ? 'Presentes reciben partes iguales' : 'Cantidad ingresada por persona'}</strong><small>{usesSharedTotal ? 'Ausentes quedan fuera; las cantidades fijas se conservan y el sobrante se reparte entre los demás.' : 'El total se obtiene sumando las cantidades de cada persona presente.'}</small></div></div></section>}
-        {newPartStep === 3 && <section className="form-section"><div className="section-heading"><span>03</span><div><h2>Frente y personal</h2><p>El personal y las máquinas se configuran por tarea dentro de cada frente.</p></div></div><div className="field-grid two"><label>Frente<select required value={frontId} onChange={(e) => setFrontId(e.target.value)}><option value="">Seleccionar frente</option>{catalogs.fronts.map((front) => <option key={front.id} value={front.id}>{front.name}</option>)}</select></label></div>
+        {newPartStep === 4 && <>
+          <div className="page-intro"><h2>Paso 4 · Revisar y guardar</h2><p>Revisá las tareas agregadas antes de guardar el parte completo.</p></div>
+          {draftTasks.length > 0 ? <section className="form-section draft-review">
+            <h2>Tareas del parte</h2>
+            <div className="daily-table-wrap staged-table-wrap"><table className="daily-table staged-table"><thead><tr><th>✓</th><th>Tarea</th><th>Cultivo</th><th>Finca</th><th>Lote</th><th>Frente</th><th>Cantidad</th><th>Unidad</th><th>Personas</th></tr></thead><tbody>
+              {draftTasks.map((task) => { const key = task.front_id + ':' + task.lot_id + ':' + task.operation_code; const lot = catalogs.lots.find((item) => item.id === task.lot_id); const operation = catalogs.operations.find((item) => item.operation_code === task.operation_code); const front = catalogs.fronts.find((item) => item.id === task.front_id); const allocations = Array.isArray(task.allocations) ? task.allocations as ReportRow[] : []; return <tr key={key}><td><input type="checkbox" aria-label={'Seleccionar tarea ' + (operation?.name ?? '') + ' para quitar'} checked={selectedDraftKeys.includes(key)} onChange={(event) => setSelectedDraftKeys((current) => event.target.checked ? [...current, key] : current.filter((item) => item !== key))} /></td><td>{operation?.name ?? String(task.operation_code)}</td><td>{lot?.crop || '—'}</td><td>{catalogs.farms.find((item) => item.id === lot?.farm_id)?.name ?? '—'}</td><td>{lot?.lot_code ?? '—'}</td><td>{front?.name === 'Carga manual' ? 'Manual' : front?.name ?? '—'}</td><td>{String(task.quantity)}</td><td>{String(task.unit)}</td><td>{allocations.length}</td></tr> })}
+            </tbody></table></div>
+            <div className="form-actions review-actions">
+              <button className="secondary-button" type="button" disabled={!selectedDraftKeys.length} onClick={() => { setDraftTasks((current) => current.filter((task) => !selectedDraftKeys.includes(task.front_id + ':' + task.lot_id + ':' + task.operation_code))); setSelectedDraftKeys([]); setDraftIdempotencyKey(''); setDraftFingerprint('') }}>Quitar tarea seleccionada</button>
+              <button className="secondary-button" type="button" onClick={discardDraft}>Descartar borrador</button>
+              <button className="secondary-button" type="button" onClick={() => { setNewPartStep(2); if (staffMode === 'manual') { setOperationCode(''); setGroupCode('') } }}>Agregar otra tarea</button>
+              <button className="primary-button" type="button" disabled={loading} onClick={() => void submitDraft()}>{loading ? 'Guardando…' : 'Guardar parte completo'}</button>
+            </div>
+          </section> : <div className="notice info">Todavía no agregaste tareas. Comenzá por Finca y lote y seguí los pasos.</div>}
+        </>}
+        {newPartStep === 1 && <>
+          <div className="page-intro"><h2>Paso 1 · Finca y lote</h2><p>Indicá dónde se realizó el trabajo. Estos datos se conservarán al avanzar.</p></div>
+          <section className="form-section location-card">
+            <h2>Datos del parte y ubicación de la tarea</h2>
+            <p>La fecha pertenece al parte completo. La finca, el lote y el centro de costo de TOTVS corresponden solamente a la tarea que estás cargando. OS se completará a mano en el PDF.</p>
+            <div className="location-fields">
+              <label>Fecha<input type="date" required value={reportDate} disabled={draftTasks.length > 0} onChange={(event) => setReportDate(event.target.value)} /></label>
+              <label>Finca<select required value={farmId} onChange={(event) => { setFarmId(event.target.value); setLotId(''); setChosenCostCenter('') }}><option value="">Seleccionar finca</option>{catalogs.farms.map((farm) => <option key={farm.id} value={farm.id}>{farm.name}</option>)}</select></label>
+              <label>Lote<select required value={lotId} onChange={(event) => { setLotId(event.target.value); setChosenCostCenter('') }} disabled={!farmId}><option value="">Seleccionar lote</option>{visibleLots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lot_code.padStart(4, '0')} — {lot.lot_name}</option>)}</select></label>
+              <label>Centro de costo<select required={catalogs.costCenters.length > 0} value={effectiveCostCenter} onChange={(event) => { setChosenCostCenter(event.target.value); setGroupCode('') }} disabled={!selectedLot}><option value="">Seleccionar centro de costo</option>{catalogs.costCenters.map((center) => <option key={center.cost_center_id} value={center.cost_center_id}>{center.name}</option>)}</select></label>
+            </div>
+            {selectedLot && !selectedLot.agronomic_data_available && <p className="location-note">Sin datos de superficie, surcos y plantación para este lote. Podés cargar el parte; no se calcularán referencias que necesiten esos datos.</p>}
+            {selectedLot?.suggested_cost_center_id && effectiveCostCenter !== selectedLot.suggested_cost_center_id && <p className="location-note">El centro elegido difiere del sugerido por la ubicación; el cambio quedará registrado en la tarea.</p>}
+            {draftTasks.length > 0 && <small className="helper-text">La fecha queda bloqueada mientras el parte está en proceso. Podés cambiar finca, lote y centro para la siguiente tarea.</small>}
+          </section>
+        </>}
+        {newPartStep === 2 && <>
+          <div className="page-intro"><h2>Paso 2 · Tarea</h2><p>Elegí cómo cargar el parte, la tarea realizada y su cantidad.</p></div>
+          <label className="staff-mode-label">¿Cómo vas a cargar el parte?</label>
+          <div className="view-tabs staff-mode-tabs" role="tablist" aria-label="Modo de carga">
+            <button type="button" role="tab" aria-selected={staffMode === 'fronts'} className={staffMode === 'fronts' ? 'selected' : ''} disabled={draftTasks.length > 0 && staffMode !== 'fronts'} onClick={() => { setStaffMode('fronts'); setFrontId(''); setOperationCode(''); setIncludedFrontTasks([]); setManualPeopleCodes([]); setFrontTaskPickerOpen(false) }}>Frentes</button>
+            <button type="button" role="tab" aria-selected={staffMode === 'manual'} className={staffMode === 'manual' ? 'selected' : ''} disabled={draftTasks.length > 0 && staffMode !== 'manual'} onClick={() => { setStaffMode('manual'); setFrontId(''); setOperationCode(''); setGroupCode(''); setIncludedFrontTasks([]); setManualPeopleCodes([]); setSelectedPeople([]) }}>Carga manual</button>
+          </div>
+          {staffMode === 'fronts' && <>
+            {visibleFronts.length === 0 ? <div className="notice info">No hay frentes configurados. Elegí “Carga manual” o creá un frente.</div> : <label className="front-picker">Frente<select value={frontId} disabled={draftTasks.length > 0} onChange={(event) => { setFrontId(event.target.value); setOperationCode(''); setIncludedFrontTasks([]); setFrontTaskPickerOpen(false) }}><option value="">Seleccionar frente</option>{visibleFronts.map((front) => <option key={front.id} value={front.id}>{front.name}</option>)}</select><small>Se cargarán las tareas, las personas y las máquinas configuradas para este frente.</small></label>}
+            {frontId && <div className="front-picker"><span className="field-label">Tareas a incluir en este parte</span>
+              <button type="button" className="front-task-multiselect" aria-expanded={frontTaskPickerOpen} onClick={() => setFrontTaskPickerOpen((open) => !open)}><span>{selectedFrontTaskCodes.length ? selectedFrontTaskCodes.map((code) => <span className="task-chip" key={code}>{catalogs.operations.find((item) => item.operation_code === code)?.name ?? code}</span>) : <span className="placeholder">Seleccionar tareas</span>}</span><ChevronDown size={16} /></button>
+              {frontTaskPickerOpen && <div className="front-task-options">{availableFrontTaskCodes.map((code) => { const operation = catalogs.operations.find((item) => item.operation_code === code); return <label key={code}><input type="checkbox" checked={includedFrontTasks.includes(code)} onChange={(event) => { const included = event.target.checked; setIncludedFrontTasks((current) => included ? [...current, code] : current.filter((item) => item !== code)); if (!included) setDraftTasks((current) => current.filter((task) => !(task.front_id === frontId && task.operation_code === code))) }} /><span>{operation?.operation_code} — {operation?.name}</span></label> })}{availableFrontTaskCodes.length === 0 && <small>Este frente todavía no tiene tareas compatibles con el centro de costo elegido.</small>}</div>}
+              <small>Quitá las tareas que no vas a cargar. Esto solo cambia este parte; el frente guardado no se modifica.</small>
+            </div>}
+            {frontId && selectedFrontTaskCodes.length > 0 && <section className="front-task-progress"><h3>Tareas incluidas en el frente</h3>
+              {selectedFrontTaskCodes.map((code, index) => { const operation = catalogs.operations.find((item) => item.operation_code === code); const label = (operation?.operation_code ?? code) + ' — ' + (operation?.name ?? ''); return completedFrontTaskCodes.includes(code) ? <div className="task-progress-done" key={code}><b>✓ Tarea {index + 1} de {selectedFrontTaskCodes.length} completada</b><span>{label}</span></div> : code === nextFrontTaskCode ? <div className="task-progress-current" role="status" key={code}><b>→ TAREA ACTUAL · {index + 1} de {selectedFrontTaskCodes.length}</b><span>{label}</span></div> : <div className="task-progress-pending" key={code}>◯ <b>Pendiente · Tarea {index + 1} de {selectedFrontTaskCodes.length}</b> — {label}</div> })}
+              {pendingFrontTaskCodes.length > 0 ? <div className="notice info">Ahora completá: {catalogs.operations.find((item) => item.operation_code === nextFrontTaskCode)?.name}. Después continuará automáticamente con la siguiente tarea incluida.</div> : <div className="notice success">Todas las tareas del frente están preparadas. Ya podés guardar el parte completo.</div>}
+            </section>}
+          </>}
+        </>}
+        {newPartStep === 2 && <section className="form-section task-data-card">
+          <h2>Datos de la tarea</h2>
+          {staffMode === 'fronts' && nextFrontTaskCode && <p className="current-task-label">Tarea {selectedFrontTaskCodes.indexOf(nextFrontTaskCode) + 1} de {selectedFrontTaskCodes.length}: <b>{selectedOperation?.operation_code} — {selectedOperation?.name}</b></p>}
+          {staffMode === 'manual' && <div className="field-grid two">
+            <label>Grupo de tarea<select value={groupCode} onChange={(event) => { setGroupCode(event.target.value); setOperationCode(''); setQuantity(''); setInputLines([]) }}><option value="">Seleccionar grupo de tarea</option>{visibleOperationGroups.map((group) => <option key={group.group_code} value={group.group_code}>{group.name}</option>)}</select></label>
+            <label>Tarea<select value={operationCode} disabled={!groupCode} onChange={(event) => { setOperationCode(event.target.value); setQuantity(''); setSelectedPeople([]); setMemberMachines({}); setAllocationDrafts({}); setInputLines([]) }}><option value="">{groupCode ? 'Seleccionar tarea' : 'Primero seleccioná el grupo de tarea'}</option>{allowedOperations.map((operation) => <option key={operation.operation_code} value={operation.operation_code}>{operation.operation_code} · {operation.name}</option>)}</select></label>
+          </div>}
+          {!operationCode && staffMode === 'fronts' && <div className="notice info">Seleccioná un frente y al menos una tarea para continuar.</div>}
+          {!operationCode && staffMode === 'manual' && <div className="notice info">Seleccioná el grupo y la tarea para continuar.</div>}
+          {selectedOperation && <>
+            <div className="task-meta"><span>Unidad: {currentUnit}</span>{selectedOperation.machine_groups.length > 0 && <b>Máquinas habilitadas: {selectedOperation.machine_groups.join(', ')}</b>}</div>
+            <label className="quantity-label">{usesSharedTotal ? `Cantidad realizada en este parte (${currentUnit})` : `Cantidad por persona (${currentUnit})`}<input type="number" inputMode="decimal" min={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="Ingresá la cantidad" /></label>
+            {usesSharedTotal ? <div className="lot-progress-panel">
+              <b>Avance del lote</b>{Number(targetQuantity) > 0 && <><div className="lot-progress-track"><span style={{ width: Math.min(100, Math.max(0, (cycleAccumulated + Number(quantity || 0)) / Number(targetQuantity) * 100)) + '%' }} /></div><small>{Math.round(Math.min(100, Math.max(0, (cycleAccumulated + Number(quantity || 0)) / Number(targetQuantity) * 100)))}% del objetivo</small></>}
+              <div className="lot-progress-metrics"><div><small>Objetivo</small><strong>{Number(targetQuantity) > 0 ? formatInputAmount(Number(targetQuantity)) + ' ' + currentUnit : 'Sin dato'}</strong></div><div><small>Ya cargado</small><strong>{formatInputAmount(cycleAccumulated)} {currentUnit}</strong></div><div><small>Con este parte</small><strong>{formatInputAmount(Number(quantity || 0))} {currentUnit}</strong></div><div><small>Quedará pendiente</small><strong>{Number(targetQuantity) > 0 ? formatInputAmount(Math.max(0, Number(targetQuantity) - cycleAccumulated - Number(quantity || 0))) + ' ' + currentUnit : 'Sin objetivo'}</strong></div></div>
+            </div> : <div className="lot-progress-panel"><b>Acumulado de la tarea</b><div className="lot-progress-metrics two"><div><small>Ya cargado</small><strong>{formatInputAmount(cycleAccumulated)} {currentUnit}</strong></div><div><small>Total al guardar</small><strong>{formatInputAmount(cycleAccumulated + completedWorkQuantity)} {currentUnit}</strong></div></div></div>}
+            <label className="task-notes-label">Observaciones<input value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+          </>}
+        </section>}
+        {newPartStep === 3 && <section className="form-section"><h2>Personal y vehículos</h2><p>Confirmá quiénes trabajaron, sus cantidades y los datos de las máquinas.</p>
+          <button className="secondary-button staff-back-button" type="button" onClick={() => setNewPartStep(2)}>Volver a tarea</button>
+          {staffMode === 'fronts' && <p className="helper-text">Personal y máquinas de la tarea {operationCode} configurados en el frente {selectedFront?.name}.</p>}
+          {staffMode === 'fronts' && <label className="manual-people-picker">Agregar persona<select value="" onChange={(event) => { const code = event.target.value; if (code) { setSelectedPeople((current) => current.includes(code) ? current : [...current, code]); setAllocationDrafts((current) => ({ ...current, [code]: current[code] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: defaultPersonHours, machine_start_time: '', machine_end_time: '' } })); setMemberMachines((current) => ({ ...current, [code]: current[code] ?? '' })) } }}><option value="">Seleccionar personal</option>{catalogs.personnel.filter((person) => !eligiblePeople.some((item) => item.employee_code === person.employee_code)).map((person) => <option key={person.employee_code} value={person.employee_code}>{person.full_name} — {person.employee_code}</option>)}</select></label>}
+          {staffMode === 'manual' && <label className="manual-people-picker">Personas del parte<select multiple size={6} value={manualPeopleCodes} onChange={(event) => { const codes = [...event.target.selectedOptions].map((option) => option.value); setManualPeopleCodes(codes); setSelectedPeople(codes) }}>{catalogs.personnel.map((person) => <option key={person.employee_code} value={person.employee_code}>{person.full_name} — {person.employee_code}</option>)}</select><small>Seleccioná las personas para este parte. Después podrás asignar o editar su máquina.</small></label>}
           {!operationCode && <p className="helper-text">Elegí la tarea para ver los frentes y su equipo configurado.</p>}{operationCode && !frontId && <p className="helper-text">Elegí un frente para ver el personal de esta tarea.</p>}{frontId && eligiblePeople.length === 0 && <p className="helper-text">Este frente no tiene personal configurado para la tarea elegida. Configuralo en Frentes.</p>}{eligiblePeople.length > 0 && <div className="allocation-grid-wrap"><table className="allocation-grid"><thead><tr><th>Legajo / apellido y nombre</th><th>Hs persona</th><th>Cant. tarea</th><th>U.M.</th><th>ID vehículo</th><th>Marca y modelo</th><th>Medidor: inicio / fin / dif.</th><th>Estado / reemplazo</th></tr></thead><tbody>{eligiblePeople.map((person) => { const assignedMachine = memberMachines[person.employee_code] ?? ''; const machine = catalogs.machines.find((item) => item.machine_code === assignedMachine); const checked = selectedPeople.includes(person.employee_code); const detail = allocationDrafts[person.employee_code] ?? { attendance: 'Presente', quantity: '', replacement_code: '', person_hours: defaultPersonHours, machine_start_time: '', machine_end_time: '' }; const updateDetail = (key: keyof AllocationDraft, value: string) => setAllocationDrafts((current) => ({ ...current, [person.employee_code]: { ...detail, [key]: value } })); const meterDifference = detail.machine_start_time !== '' && detail.machine_end_time !== '' ? Number(detail.machine_end_time) - Number(detail.machine_start_time) : null; const quantityEnabled = checked && detail.attendance !== 'Ausente' && (!usesSharedTotal || detail.attendance === 'Cantidad fija'); return <tr key={person.employee_code} className={checked ? 'is-selected' : ''}><td data-label="Persona"><label className="allocation-person-picker"><input type="checkbox" checked={checked} aria-label={`Incluir a ${person.full_name}`} onChange={(event) => { setSelectedPeople((current) => event.target.checked ? [...current, person.employee_code] : current.filter((code) => code !== person.employee_code)); if (event.target.checked && !Object.hasOwn(memberMachines, person.employee_code)) { const configured = members.find((member) => member.personnel_code === person.employee_code)?.machine_code ?? ''; setMemberMachines((current) => ({ ...current, [person.employee_code]: configured })) } }} /><span><b>{person.employee_code}</b><strong>{person.full_name}</strong></span></label></td><td data-label="Hs persona"><input aria-label={`Horas de ${person.full_name}`} type="number" min="0" max="24" step="0.25" disabled={!checked} value={detail.person_hours} onChange={(event) => updateDetail('person_hours', event.target.value)} /></td><td data-label="Cant. tarea">{quantityEnabled ? <input aria-label={`Cantidad de tarea de ${person.full_name}`} type="number" min="0" step={currentUnit.toUpperCase() === 'SC' ? '1' : '0.001'} required value={detail.quantity} onChange={(event) => updateDetail('quantity', event.target.value)} /> : detail.attendance === 'Ausente' ? '0' : usesSharedTotal && checked && quantity.trim() ? formatInputAmount(allocationPreview[person.employee_code] ?? 0) : '—'}</td><td data-label="U.M.">{currentUnit || '—'}</td><td data-label="ID vehículo">{selectedOperation?.task_type === 'Manual' ? '—' : <select aria-label={`Vehículo de ${person.full_name}`} disabled={!checked} value={assignedMachine} onChange={(event) => setMemberMachines((current) => ({ ...current, [person.employee_code]: event.target.value }))}><option value="">Sin vehículo</option>{eligibleMachines.map((item) => <option key={item.machine_code} value={item.machine_code}>{item.machine_code}</option>)}</select>}</td><td data-label="Marca y modelo">{machine ? `${machine.brand} ${machine.model}`.trim() : '—'}</td><td data-label="Medidor"><div className="allocation-meter-fields"><label><small>Inicio</small><input aria-label={`Medidor inicial de ${person.full_name}`} type="number" min="0" step="1" disabled={!checked || !assignedMachine} value={detail.machine_start_time} onChange={(event) => updateDetail('machine_start_time', event.target.value)} /></label><label><small>Fin</small><input aria-label={`Medidor final de ${person.full_name}`} type="number" min="0" step="1" disabled={!checked || !assignedMachine} value={detail.machine_end_time} onChange={(event) => updateDetail('machine_end_time', event.target.value)} /></label><b>Dif. {meterDifference === null ? '—' : meterDifference}</b></div></td><td data-label="Estado / reemplazo"><div className="allocation-extra-fields"><select aria-label={`Estado de ${person.full_name}`} disabled={!checked} value={detail.attendance} onChange={(event) => updateDetail('attendance', event.target.value)}><option>Presente</option><option>Ausente</option><option>Cantidad fija</option></select><input aria-label={`Reemplazo de ${person.full_name}`} list={`personnel-${person.employee_code}`} disabled={!checked} value={detail.replacement_code} onChange={(event) => updateDetail('replacement_code', event.target.value)} placeholder="Legajo reemplazo" /><datalist id={`personnel-${person.employee_code}`}>{catalogs.personnel.filter((item) => item.employee_code !== person.employee_code).map((item) => <option key={item.employee_code} value={item.employee_code}>{item.full_name}</option>)}</datalist></div></td></tr> })}</tbody></table></div>}</section>}
-        {newPartStep === 2 && selectedOperation?.allows_inputs && <section className="form-section"><div className="section-heading"><span>04</span><div><h2>Insumos</h2><p>Agregá productos, dosis y consumo para esta tarea.</p></div><button className="secondary-button" type="button" disabled={!catalogs.inputs.length} onClick={() => setInputLines((rows) => [...rows, { input_code: '', dose: '', quantity: '', unit: '' }])}>Agregar insumo</button></div>{inputLines.map((line, index) => { const operationInputCodes = catalogs.operationInputs.filter((row) => row.operation_code === operationCode).map((row) => row.input_code); const compatibleInputs = operationInputCodes.length ? catalogs.inputs.filter((input) => operationInputCodes.includes(input.input_code)) : catalogs.inputs; const basisQuantity = completedWorkQuantity; const dose = Number(line.dose); const inputQuantity = Number(line.quantity); const hasBasis = Number.isFinite(basisQuantity) && basisQuantity > 0; const hasDose = line.dose.trim() !== '' && Number.isFinite(dose) && dose >= 0; const hasQuantity = line.quantity.trim() !== '' && Number.isFinite(inputQuantity) && inputQuantity >= 0; const theoretical = hasBasis && hasDose ? calculateInputTotal(basisQuantity, dose, line.unit) : null; const actualDose = hasBasis && hasQuantity ? calculateActualInputDose(inputQuantity, basisQuantity, line.unit) : null; const doseUnit = inputDoseUnit(line.unit); return <div className="field-grid two" key={`input-${index}`} ><label>Producto<select required value={line.input_code} onChange={(event) => { const selected = catalogs.inputs.find((input) => input.input_code === event.target.value); setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, input_code: event.target.value, unit: selected?.unit ?? '' } : row)) }}><option value="">Seleccionar insumo</option>{compatibleInputs.map((input) => <option key={input.input_code} value={input.input_code}>{input.description} · {input.input_code}</option>)}</select></label><label>Dosis ({doseUnit} / {currentUnit || 'unidad'})<input type="number" min="0" step="0.001" value={line.dose} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, dose: event.target.value } : row))} /></label><label>Consumo real<input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value } : row))} /></label><label>Unidad<input value={line.unit} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, unit: event.target.value } : row))} /></label><div className="allocation-hint full-field"><span>Estimación del insumo</span><strong>Consumo teórico: {theoretical === null ? 'Sin objetivo o dosis' : `${formatInputAmount(theoretical)} ${line.unit || 'unidad'}`}</strong><small>{actualDose === null ? (hasBasis ? `Ingresá el consumo real para calcular la dosis aplicada en ${currentUnit || 'la unidad de tarea'}.` : 'Ingresá la cantidad realizada para hacer el cálculo.') : `Dosis real: ${formatInputAmount(actualDose)} ${doseUnit} / ${currentUnit || 'unidad'} · Base realizada: ${formatInputAmount(basisQuantity)} ${currentUnit || 'unidades'}.`}</small></div><button className="text-button" type="button" onClick={() => setInputLines((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}>Quitar insumo</button></div> })}{catalogs.inputs.length === 0 && <p className="helper-text">El catálogo de insumos todavía no está cargado en Supabase.</p>}</section>}
-        {newPartStep === 2 && <section className="form-section"><div className="section-heading"><span>05</span><div><h2>Observaciones</h2><p>Agregá una nota si hace falta.</p></div></div><label className="full-field">Notas<textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Observaciones del trabajo" /></label></section>}
-        {newPartStep === 1 && <div className="form-actions"><span>La fecha pertenece al parte completo; finca y lote corresponden a esta tarea.</span><button className="primary-button" type="button" disabled={!farmId || !lotId} onClick={() => setNewPartStep(2)}>Continuar a tarea <ArrowUp size={16} /></button></div>}
-        {newPartStep === 2 && <div className="form-actions"><button className="secondary-button" type="button" onClick={() => setNewPartStep(1)}>Volver</button><button className="primary-button" type="button" disabled={!operationCode || (usesSharedTotal && !quantity.trim())} onClick={() => setNewPartStep(3)}>Continuar a personal y vehículos <ArrowUp size={16} /></button></div>}
-        {newPartStep === 3 && <div className="form-actions"><button className="secondary-button" type="button" onClick={() => setNewPartStep(2)}>Volver a tarea</button><button className="primary-button" type="submit" disabled={loading || !selectedFront || !selectedLot || !selectedOperation}>{loading ? 'Preparando…' : 'Agregar tarea al borrador'}</button></div>}
+            {newPartStep === 2 && selectedOperation?.allows_inputs && <section className="form-section input-dose-section">
+              <h2>Insumos y dosis</h2>
+              <label className="input-search-label">Buscar insumos<input type="search" value={inputSearch} onChange={(event) => setInputSearch(event.target.value)} placeholder="Escribí el nombre o código del insumo…" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const selected = catalogs.inputs.find((item) => !inputLines.some((line) => line.input_code === item.input_code) && (item.description + ' ' + item.input_code).toLocaleLowerCase().includes(inputSearch.trim().toLocaleLowerCase())); if (selected) { setInputLines((rows) => [...rows, { input_code: selected.input_code, dose: '', quantity: '', unit: selected.unit }]); setInputSearch('') } } }} /><span className="input-search-results">{inputSearch.trim() && catalogs.inputs.filter((item) => !inputLines.some((line) => line.input_code === item.input_code) && (item.description + ' ' + item.input_code).toLocaleLowerCase().includes(inputSearch.trim().toLocaleLowerCase())).slice(0, 8).map((item) => <button type="button" key={item.input_code} onClick={() => { setInputLines((rows) => [...rows, { input_code: item.input_code, dose: '', quantity: '', unit: item.unit }]); setInputSearch('') }}>{item.description} · {item.input_code} · {item.unit || '-'}</button>)}</span></label>
+              <div className="frequent-inputs"><small>Productos frecuentes</small><div>{frequentInputCodes.map((code) => { const item = catalogs.inputs.find((candidate) => candidate.input_code === code); return item ? <button type="button" className="secondary-button" key={item.input_code} disabled={inputLines.some((line) => line.input_code === item.input_code)} onClick={() => setInputLines((rows) => [...rows, { input_code: item.input_code, dose: '', quantity: '', unit: item.unit }])}>♧ {item.description}</button> : null })}</div></div>
+              {inputLines.map((line, index) => { const item = catalogs.inputs.find((candidate) => candidate.input_code === line.input_code); const basisQuantity = completedWorkQuantity; const actualDose = basisQuantity > 0 && Number(line.quantity) > 0 ? calculateActualInputDose(Number(line.quantity), basisQuantity, line.unit) : null; const theoretical = basisQuantity > 0 && Number(line.dose) > 0 ? calculateInputTotal(basisQuantity, Number(line.dose), line.unit) : null; const doseUnit = inputDoseUnit(line.unit); return <div className="input-dose-row" key={line.input_code + '-' + index}>
+                <div><b>{item?.description ?? line.input_code}</b><small>Código {line.input_code} · Unidad {line.unit || '-'}</small></div>
+                <label>Dosis teórica ({doseUnit} / {currentUnit || 'unidad'})<input type="number" min="0" step="0.001" value={line.dose} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, dose: event.target.value } : row))} /></label>
+                <label>Consumo real<input type="number" min="0" step="0.1" value={line.quantity} onChange={(event) => setInputLines((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value } : row))} /></label>
+                <div className="dose-result"><small>Dosis real</small><b>{actualDose === null ? '—' : formatInputAmount(actualDose)}</b><small>Teórico: {theoretical === null ? '—' : formatInputAmount(theoretical)}</small></div>
+                <button type="button" className="text-button" onClick={() => setInputLines((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}>Quitar</button>
+              </div> })}
+              {catalogs.inputs.length === 0 && <p className="helper-text">El catálogo de insumos todavía no está cargado en Supabase.</p>}
+            </section>}
+        {newPartStep === 1 && <div className="form-actions"><span>Fecha, finca y lote corresponden al parte y a la tarea.</span><button className="primary-button" type="button" disabled={!farmId || !lotId || !effectiveCostCenter} onClick={() => setNewPartStep(2)}>Continuar a tarea <ArrowUp size={16} /></button></div>}
+        {newPartStep === 2 && <div className="form-actions"><button className="primary-button" type="button" disabled={!operationCode || !quantity.trim() || !Number.isFinite(Number(quantity)) || Number(quantity) <= 0} onClick={() => void continueToStaffStep()}>Continuar a personal y vehículos <ArrowUp size={16} /></button></div>}
+        {newPartStep === 3 && <div className="form-actions"><button className="primary-button" type="submit" disabled={loading || !selectedFront || !selectedLot || !selectedOperation}>{loading ? 'Preparando…' : 'Confirmar tarea'}</button></div>}
         {newPartStep === 4 && <div className="form-actions"><span>El parte completo se guarda después de revisar todas las tareas.</span></div>}
       </form>}
       <footer>Asistente de parte diario <span>·</span> Versión de trabajo</footer>

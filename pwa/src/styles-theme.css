@@ -318,3 +318,92 @@ input:disabled, select:disabled { background-color: #29372e !important; color: #
   .front-create-card, .front-manage-view, .settings-panel { padding: 17px 13px; }
   .quick-entry { min-height: calc(100vh - 185px); }
 }
+
+/* Mirror the reference's four-column location row and task queue. */
+.location-card { margin-bottom: 0; padding: 20px 16px 16px; border: 1px solid var(--app-border); border-radius: 12px; background: var(--app-panel); }
+.location-card h2, .task-data-card > h2, .input-dose-section > h2, .draft-review > h2 { margin: 0 0 5px; color: var(--app-text); font: 700 16px Arial, sans-serif; }
+.location-card > p { margin: 0 0 16px; color: var(--app-muted); font-size: 12px; line-height: 1.45; }
+.location-fields { display: grid; grid-template-columns: minmax(145px,.72fr) minmax(190px,1.45fr) minmax(210px,1.5fr) minmax(175px,1.25fr); gap: 15px; align-items: end; }
+.location-fields label, .task-data-card label, .input-dose-section label, .manual-task-select label { display: grid; gap: 6px; color: var(--app-text); font-size: 11px; }
+.location-fields input, .location-fields select { min-width: 0; min-height: 40px; }
+.location-note { margin: 10px 0 0 !important; color: #70aeca !important; }
+.location-actions { justify-content: flex-start; padding: 10px 0 16px !important; }
+.location-actions .primary-button { min-height: 40px; }
+.staff-mode-label { display: block; margin: 0 0 6px; color: var(--app-text); font-size: 12px; font-weight: 700; }
+.staff-mode-tabs { margin: 0 0 10px; }
+.front-picker { position: relative; display: grid; gap: 6px; max-width: none; margin: 0 0 11px; color: var(--app-text); font-size: 11px; font-weight: 600; }
+.front-picker > small { color: var(--app-muted); font-size: 10px; font-weight: 400; }
+.front-picker > select { width: 100%; }
+.front-task-multiselect { width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 5px 10px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-panel-raised); color: var(--app-text); text-align: left; }
+.front-task-multiselect > span:first-child { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.front-task-multiselect .placeholder { color: var(--app-muted); }
+.task-chip { display: inline-flex; align-items: center; max-width: 280px; overflow: hidden; padding: 4px 7px; border-radius: 6px; background: var(--app-primary); color: #17221d; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.front-task-options { position: absolute; z-index: 10; top: calc(100% - 18px); left: 0; right: 0; display: grid; max-height: 250px; overflow: auto; padding: 7px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-panel); box-shadow: 0 10px 24px #0005; }
+.front-task-options label { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 6px; color: var(--app-text); cursor: pointer; }
+.front-task-options label:hover { background: var(--app-panel-raised); }
+.front-task-options input { accent-color: var(--app-primary); }
+.front-task-progress { display: grid; gap: 8px; margin: 0 0 10px; }
+.front-task-progress h3 { margin: 0 0 1px; color: var(--app-text); font: 700 13px Arial, sans-serif; }
+.task-progress-current { display: grid; gap: 6px; min-height: 58px; padding: 13px 15px; border-radius: 9px; background: #526747; color: #f6f5f0; box-shadow: 0 2px 6px #25312a14; font-size: 11px; }
+.task-progress-current b { font-size: 12px; }
+.task-progress-done { display: grid; gap: 4px; padding: 10px 13px; border: 1px solid #45654a; border-radius: 9px; background: #2c4030; color: #cce0bc; font-size: 11px; }
+.task-progress-pending { padding: 10px 13px; border: 1px solid var(--app-border); border-radius: 9px; color: var(--app-muted); font-size: 11px; }
+.notice.info { border-color: transparent; background: #203432; color: #70aeca; }
+.task-data-card { margin: 0 0 10px; padding: 15px; border: 1px solid var(--app-border); border-radius: 10px; background: transparent; }
+.current-task-label { margin: 0 0 8px; color: var(--app-text); font-size: 11px; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0 0 13px; color: var(--app-muted); font-size: 10px; }
+.quantity-label { max-width: 390px; margin-bottom: 5px; }
+.lot-progress-panel { margin: 5px 0 8px; padding: 11px 12px; border: 1px solid var(--app-border); border-radius: 9px; background: transparent; }
+.lot-progress-panel > b { display: block; margin-bottom: 7px; color: var(--app-text); font-size: 11px; }
+.lot-progress-track { height: 5px; overflow: hidden; margin: 8px 0 3px; border-radius: 99px; background: #304536; }
+.lot-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--app-primary); }
+.lot-progress-panel > small { color: var(--app-muted); font-size: 9px; }
+.lot-progress-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-top: 10px; }
+.lot-progress-metrics.two { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.lot-progress-metrics > div { display: grid; gap: 3px; }
+.lot-progress-metrics small { color: var(--app-text); font-size: 9px; font-weight: 600; }
+.lot-progress-metrics strong { color: var(--app-text); font-size: 19px; font-weight: 400; }
+.task-notes-label { margin-top: 8px; }
+.input-dose-section { display: grid; gap: 10px; margin-bottom: 10px; padding: 14px 0 4px; border: 0; }
+.input-search-label, .input-select-label { max-width: none; }
+.input-search-label input, .input-select-label select { min-height: 38px; }
+.input-search-label { position: relative; }
+.input-search-results { position: absolute; z-index: 12; top: calc(100% - 2px); left: 0; right: 0; display: grid; max-height: 240px; overflow-y: auto; border: 1px solid var(--app-border); border-radius: 0 0 9px 9px; background: var(--app-panel); box-shadow: 0 10px 24px #0005; }
+.input-search-results:empty { display: none; }
+.input-search-results button { padding: 9px 11px; border: 0; background: transparent; color: var(--app-text); text-align: left; font-size: 11px; }
+.input-search-results button:hover { background: var(--app-panel-raised); }
+.frequent-inputs { display: grid; gap: 8px; }
+.frequent-inputs > small { color: var(--app-muted); font-size: 10px; }
+.frequent-inputs > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.frequent-inputs .secondary-button { padding: 7px 10px; border-radius: 7px; font-size: 10px; }
+.input-dose-row { display: grid; grid-template-columns: minmax(145px,1.35fr) minmax(130px,1fr) minmax(130px,1fr) minmax(90px,.7fr) auto; gap: 10px; align-items: end; padding: 10px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-panel); }
+.input-dose-row > div:first-child, .dose-result { display: grid; gap: 3px; color: var(--app-text); font-size: 11px; }
+.input-dose-row > div small, .dose-result small { color: var(--app-muted); font-size: 9px; }
+.dose-result b { font-size: 13px; font-weight: 500; }
+.input-dose-row .text-button { align-self: center; }
+.input-unavailable { margin: 0 0 8px; }
+.task-actions { justify-content: flex-start; padding: 6px 0 16px !important; }
+.manual-task-select { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-bottom: 10px; }
+.manual-people-picker { display: grid; gap: 6px; max-width: 700px; margin: 10px 0 14px; color: var(--app-text); font-size: 11px; }
+.manual-people-picker select { min-height: 120px; }
+.manual-people-picker small { color: var(--app-muted); }
+.staff-back-button { min-height: 34px; padding: 7px 12px; }
+.staff-panel-title { margin: 15px 0 4px; color: var(--app-text); font: 700 16px Arial, sans-serif; }
+.review-actions { flex-wrap: wrap; justify-content: flex-start; padding: 14px 0 0 !important; }
+.staged-table-wrap { margin-top: 10px; }
+.staged-table { min-width: 980px; }
+.staged-table th:first-child, .staged-table td:first-child { width: 44px; text-align: center; }
+.staged-table input[type=checkbox] { accent-color: var(--app-primary); }
+.draft-review { border-color: var(--app-border); background: var(--app-panel); }
+.draft-review .form-actions { padding-inline: 0; }
+@media (max-width: 920px) {
+  .location-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .input-dose-row { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 650px) {
+  .location-fields, .manual-task-select { grid-template-columns: 1fr; }
+  .lot-progress-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .input-dose-row { grid-template-columns: 1fr 1fr; }
+  .front-task-options { position: static; margin-top: 5px; }
+  .review-actions > button { flex: 1 1 45%; }
+}
