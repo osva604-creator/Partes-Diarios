@@ -910,6 +910,7 @@ export default function App() {
           <label>Mensaje sugerido<textarea rows={3} value={whatsappMessage} onChange={(event) => setWhatsappMessage(event.target.value)} /></label>
           <small>Podés usar {'{id}'} y {'{fecha}'} en el mensaje.</small>
           <button className="primary-button" onClick={savePreferences}><Save size={15} />Guardar configuración</button>
+          <div className="sidebar-config-actions"><button type="button" onClick={section === 'reports' || section === 'sent' ? loadReports : loadCatalogs} disabled={loading}><RefreshCw size={15} />Actualizar datos</button><button type="button" onClick={signOut}><LogOut size={15} />Cerrar sesión</button></div>
           <div className="sidebar-note"><Cloud size={15} /><span>Sincronización en línea</span></div>
         </section>}
       </div>
@@ -917,7 +918,6 @@ export default function App() {
     <section className="workspace" id="inicio">
       <header className="topbar">
         <h1>{section === 'reports' ? 'Partes y avance' : section === 'fronts' ? 'Frentes de trabajo' : section === 'quick' ? 'Carga manual' : 'Mis partes'}</h1>
-        <div className="account-actions"><button className="icon-button" onClick={section === 'reports' || section === 'sent' ? loadReports : loadCatalogs} title="Actualizar datos" disabled={loading}><RefreshCw size={17} /></button><button className="icon-button" onClick={signOut} title="Cerrar sesión"><LogOut size={17} /></button></div>
       </header>
       {section === 'reports' && <div className="view-tabs" role="tablist" aria-label="Partes y avance">
         <button className={partsView === 'summary' ? 'selected' : ''} role="tab" aria-selected={partsView === 'summary'} onClick={() => { setPartsView('summary'); setSelectedReport(null) }}>Resumen</button>

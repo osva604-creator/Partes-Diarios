@@ -132,7 +132,7 @@ input:disabled, select:disabled { background-color: #29372e !important; color: #
 .text-button { color: #e0a797; }
 .notice.error { border-color: #70473f; background: #3b2926; color: #f0b7a8; }
 .notice.success { border-color: #45654a; background: #2c4030; color: #cce0bc; }
-.empty-state { border-color: var(--app-border); background: var(--app-panel); }
+.empty-state { width: 100%; max-width: none; margin: 0; padding: 17px 16px; border: 0; border-radius: 10px; background: #203432; color: #70aeca; }
 .setup-screen { background: var(--app-bg); }
 .setup-card { box-shadow: 0 14px 44px #0005; }
 .setup-card code { background: #304536; color: var(--app-primary-strong); }
@@ -269,6 +269,9 @@ input:disabled, select:disabled { background-color: #29372e !important; color: #
 .sidebar-settings textarea { resize: vertical; }
 .sidebar-settings small { color: var(--app-muted); font-size: 10px; line-height: 1.4; }
 .sidebar-settings .primary-button { justify-content: center; min-height: 36px; padding: 8px 10px; font-size: 11px; }
+.sidebar-config-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sidebar-config-actions button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 6px; border: 1px solid var(--app-border); border-radius: 7px; background: transparent; color: var(--app-text); font-size: 10px; }
+.sidebar-config-actions button:hover { background: var(--app-panel-raised); }
 .sidebar-settings .sidebar-note { display: flex; align-items: center; gap: 7px; margin: 0; padding: 8px 0 0; border-top: 1px solid var(--app-border); font-size: 10px; }
 .sidebar-collapsed { width: 76px; padding-inline: 14px; }
 .sidebar-collapsed + .workspace { margin-left: 76px; }
